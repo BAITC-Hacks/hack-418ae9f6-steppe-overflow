@@ -1,7 +1,24 @@
 # HTTPS-сертификат выпускается и продлевается автоматически (Let's Encrypt)
 {$DOMAIN} {
 	encode zstd gzip
-	reverse_proxy app:8501
+
+	# PWA: манифест, service worker, офлайн-заставка и иконки отдаёт Caddy (Streamlit так не умеет)
+	@pwa_root path /manifest.webmanifest /sw.js /offline.html
+	handle @pwa_root {
+		root * /srv/pwa
+		header /sw.js Cache-Control "no-cache"
+		header /manifest.webmanifest Content-Type "application/manifest+json"
+		file_server
+	}
+	handle_path /pwa/* {
+		root * /srv/pwa
+		header Cache-Control "public, max-age=86400"
+		file_server
+	}
+
+	handle {
+		reverse_proxy app:8501
+	}
 }
 
 www.{$DOMAIN} {

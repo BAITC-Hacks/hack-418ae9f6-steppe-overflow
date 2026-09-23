@@ -1,0 +1,17 @@
+{
+  "name": "Steppe Wind — прогноз выработки ВЭС",
+  "short_name": "Steppe Wind",
+  "description": "Agentic AI прогноз почасовой выработки ветроэлектростанции на 24–48 часов",
+  "lang": "ru",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#0c4741",
+  "icons": [
+    {"src": "/pwa/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any"},
+    {"src": "/pwa/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any"},
+    {"src": "/pwa/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable"},
+    {"src": "/pwa/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"}
+  ]
+}

@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Steppe Wind — нет соединения</title>
+<link rel="icon" href="/pwa/favicon.svg">
+<style>
+  body { margin: 0; min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    font-family: Manrope, Roboto, system-ui, sans-serif; background: #dfe9f2; color: #0c2f2b; }
+  .card { background: #fff; border-radius: 20px; padding: 36px 32px; max-width: 360px; margin: 16px;
+    text-align: center; box-shadow: 0 12px 32px rgba(12, 71, 65, .12); }
+  img { width: 72px; height: 72px; }
+  h1 { font-size: 22px; margin: 18px 0 8px; }
+  p { color: #5b6b66; line-height: 1.5; margin: 0 0 22px; }
+  button { background: #12803f; color: #fff; border: 0; border-radius: 10px; padding: 12px 22px;
+    font: inherit; font-weight: 700; cursor: pointer; }
+</style>
+</head>
+<body>
+  <div class="card">
+    <img src="/pwa/favicon.svg" alt="">
+    <h1>Нет соединения</h1>
+    <p>Steppe Wind считает прогноз на сервере в реальном времени, поэтому нужен интернет.</p>
+    <button onclick="location.reload()">Повторить</button>
+  </div>
+</body>
+</html>

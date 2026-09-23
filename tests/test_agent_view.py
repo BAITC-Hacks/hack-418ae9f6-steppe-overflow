@@ -61,3 +61,28 @@ def test_quota_per_ip_and_total(tmp_path, monkeypatch):
     ok, msg = av.take_quota("chat", "3.3.3.3", q)
     assert not ok and "дневной лимит сайта" in msg  # общий лимит
     assert json.loads(q.read_text())["chat"]["total"] == 3
+
+
+@needs_run
+def test_brief_and_pipeline_from_saved_run():
+    run = av.load_run(RUN_DIR)
+    b = av.run_brief(run)
+    assert b["explanation"] == run["versions"][0]["explanation"]  # на главной — версия на момент выпуска
+    assert b["confidence"] in ("высокая", "средняя", "низкая")
+    stages = av.pipeline_stages(run["steps"])
+    assert stages[0]["title"] == "Погода" and stages[0]["phase"] == 1
+    assert any(s["title"] == "Публикация v1" for s in stages)
+    if len(run["versions"]) > 1:
+        assert b["revision"]["version"] == 2 and any(s["phase"] == 2 for s in stages)
+    html = av.stepper_html(stages)
+    assert html.count('class="sw-node') == len(stages) and "sw-row" in html
+
+
+def test_stepper_marks_running_and_errors():
+    steps = [
+        {"tool": "fetch_weather", "ok": True, "as_of_utc": "2026-02-10 08:00:00",
+         "result": {"coverage_ws100": {"ifs": 1.0, "gfs": 1.0}}},
+        {"tool": "run_forecast", "ok": False, "as_of_utc": "2026-02-10 08:00:00", "result": {"error": "x"}},
+    ]
+    html = av.stepper_html(av.pipeline_stages(steps), running=True)
+    assert "sw-node ok" in html and "sw-node err" in html

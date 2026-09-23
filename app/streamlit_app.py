@@ -140,6 +140,40 @@ def inject_css() -> None:
     st.html(CSS)
 
 
+# PWA: манифест и service worker отдаёт Caddy (deploy/Caddyfile); здесь — подключение на странице
+# и кнопка «Установить приложение», которая появляется, когда браузер разрешает установку.
+PWA_HTML = """
+<button class="sw-install" style="display:none;align-items:center;gap:8px;width:100%;margin-top:6px;
+  padding:9px 12px;border-radius:10px;border:1px solid #c9d8cf;background:#fff;color:#0c4741;
+  font:600 14px Manrope,Roboto,sans-serif;cursor:pointer">📲 Установить приложение</button>
+<script>
+(function () {
+  if (["localhost", "127.0.0.1"].includes(location.hostname)) return;
+  const w = window, doc = document;
+  const show = () => doc.querySelectorAll(".sw-install").forEach((b) => {
+    b.style.display = "flex";
+    b.onclick = async () => { if (!w.__swPrompt) return; w.__swPrompt.prompt(); await w.__swPrompt.userChoice;
+      w.__swPrompt = null; doc.querySelectorAll(".sw-install").forEach((x) => (x.style.display = "none")); };
+  });
+  if (!w.__swPwa) {
+    w.__swPwa = true;
+    const add = (tag, attrs) => { const el = doc.createElement(tag);
+      Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v)); doc.head.appendChild(el); };
+    add("link", { rel: "manifest", href: "/manifest.webmanifest" });
+    add("meta", { name: "theme-color", content: "#0c4741" });
+    add("link", { rel: "apple-touch-icon", href: "/pwa/apple-touch-icon.png" });
+    add("meta", { name: "apple-mobile-web-app-capable", content: "yes" });
+    add("meta", { name: "mobile-web-app-capable", content: "yes" });
+    add("meta", { name: "apple-mobile-web-app-title", content: "Steppe Wind" });
+    if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js");
+    w.addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); w.__swPrompt = e; show(); });
+  }
+  if (w.__swPrompt) show();
+})();
+</script>
+"""
+
+
 def plot(fig) -> None:
     """Графики в фирменном стиле: своя тема вместо стандартной Streamlit, без панели инструментов."""
     st.plotly_chart(fig, use_container_width=True, theme=None, config=theme.PLOTLY_CONFIG)
@@ -656,4 +690,5 @@ inject_css()
 chat_widget()
 with st.sidebar:
     st.caption("Agentic AI прогноз выработки ВЭС · Steppe Overflow")
+    st.html(PWA_HTML, unsafe_allow_javascript=True)
 st.navigation(pages).run()
