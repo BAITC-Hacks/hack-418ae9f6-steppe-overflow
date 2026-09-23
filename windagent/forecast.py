@@ -39,9 +39,10 @@ OUTPUT_COLUMNS = [
 @dataclass
 class ProductionModel:
     point: EnsembleForecaster = field(default_factory=EnsembleForecaster)
-    # Калибровка интервала: 120 дней и отдельная поправка для штиля / среднего ветра / номинала —
-    # на контрольных периодах покрытие 77–78 % при номинале 80 % (было 73–78 %)
-    interval: ConformalInterval = field(default_factory=lambda: ConformalInterval(cal_days=120, bins=(0.2, 0.6)))
+    # Итоговая модель: калибровка на 60 днях (покрытие 73–78 % на контрольных периодах).
+    # Проверенная альтернатива: ConformalInterval(cal_days=120, bins=(0.2, 0.6)) — покрытие 77–78 %;
+    # для перехода нужно переобучить модель и перегенерировать сабмит и журналы агента.
+    interval: ConformalInterval = field(default_factory=ConformalInterval)
     meta: dict = field(default_factory=dict)
 
     @property

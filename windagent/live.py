@@ -70,7 +70,7 @@ def refresh_weather(now: pd.Timestamp | None = None, settings: dict | None = Non
     for m in s["weather"]["previous_runs"]:
         weather.download_previous_runs(m, (now - pd.Timedelta(days=3)).date(), (now + pd.Timedelta(days=3)).date(),
                                        settings=s, directory=d, log=lambda x: None)
-    if "neighbors" in s:
+    if s.get("neighbors", {}).get("use_in_model"):
         for name in s["neighbors"]["points"]:
             (d / f"single_ecmwf_ifs_nb_{name}_missing.json").unlink(missing_ok=True)
         weather.download_neighbors(start, end, settings=s, directory=d, workers=2, log=lambda x: None)
