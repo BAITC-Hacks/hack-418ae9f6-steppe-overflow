@@ -40,7 +40,8 @@ class GbmForecaster(Forecaster):
         self.train_on = train_on
         self.targets = targets
         self.params = {**DEFAULT_PARAMS, **params}
-        self.name = name or f"gbm_{'l1' if loss == 'absolute_error' else 'l2'}_{train_on}"
+        short = {"absolute_error": "l1", "squared_error": "l2", "quantile": f"q{int(params.get('quantile', 0.5) * 100)}"}
+        self.name = name or f"gbm_{short[loss]}_{train_on}"
 
     def _prepare(self, X: pd.DataFrame) -> pd.DataFrame:
         F = add_features(X)

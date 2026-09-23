@@ -88,6 +88,57 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_train(args: argparse.Namespace) -> int:
+    from windagent import forecast
+
+    forecast.train_production()
+    return 0
+
+
+def _cmd_forecast(args: argparse.Namespace) -> int:
+    import json
+
+    import pandas as pd
+
+    from windagent import forecast
+    from windagent.config import resolve
+
+    model = forecast.load_model()
+    f, m = forecast.forecast_issue(args.date, model)
+    out = resolve("artifacts/forecasts")
+    out.mkdir(parents=True, exist_ok=True)
+    f.to_csv(out / f"forecast_{args.date}.csv", index=False)
+    (out / f"manifest_{args.date}.json").write_text(json.dumps(m, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+    pd.set_option("display.width", 160)
+    print(f"Выпуск {args.date}: момент прогноза {m['as_of_utc']} UTC, модель {m['model_version']}")
+    latest = {}
+    for src in m["sources"]:
+        if src.get("model") and src.get("max_published_at"):
+            key = (src["source"], src["model"])
+            latest[key] = max(latest.get(key, ""), src["max_published_at"])
+    for (source, name), pub in latest.items():
+        print(f"  {source:<8} {name:<14} самый свежий использованный прогон опубликован {pub}")
+    print(f"  все источники опубликованы до момента прогноза: {m['checks']['all_sources_published_before_as_of']}")
+    cols = ["target_time_local", "lead_day", "p_farm", "p_farm_q10", "p_farm_q90"]
+    print(f.set_index("target_time_local")[cols[1:]].iloc[::3].to_string())
+    print(f"Сохранено: {out}")
+    return 0
+
+
+def _cmd_submission(args: argparse.Namespace) -> int:
+    from windagent import forecast
+    from windagent.config import load_settings
+
+    s = load_settings()
+    try:
+        model = forecast.load_model()
+    except FileNotFoundError:
+        model = forecast.train_production(s)
+    f = s["forecast"]
+    print(forecast.run_period(f["test_first_issue"], f["test_last_issue"], model, s))
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="windagent",
@@ -120,6 +171,14 @@ def build_parser() -> argparse.ArgumentParser:
     b.add_argument("--period", default="all", help="feb2025,dec2025,jan2026 или all")
     b.add_argument("--baselines-only", action="store_true", help="без основной модели (быстро)")
     b.set_defaults(func=_cmd_backtest)
+
+    sub.add_parser("train", help="Обучить итоговую модель на данных до первого тестового выпуска").set_defaults(func=_cmd_train)
+
+    fc = sub.add_parser("forecast", help="Прогноз одного выпуска (48 ч) с манифестом источников")
+    fc.add_argument("--date", required=True, help="дата выпуска, напр. 2026-02-10")
+    fc.set_defaults(func=_cmd_forecast)
+
+    sub.add_parser("submission", help="Прогноз на весь тестовый период (31.01–27.02.2026)").set_defaults(func=_cmd_submission)
     return p
 
 

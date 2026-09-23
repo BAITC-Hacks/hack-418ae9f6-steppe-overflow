@@ -1,0 +1,89 @@
+{
+ "issue_date": "2026-02-18",
+ "as_of_utc": "2026-02-18 08:00:00",
+ "model_version": "ensemble-v1-20260131",
+ "model_trained_until_utc": "2026-01-31 08:00:00",
+ "sources": [
+  {
+   "source": "single",
+   "model": "ecmwf_ifs",
+   "targets": "2026-02-18 18:00:00 … 2026-02-20 17:00:00",
+   "coverage": 1.0,
+   "max_published_at": "2026-02-18 07:00:00",
+   "run_time": "2026-02-18 00:00:00"
+  },
+  {
+   "source": "single",
+   "model": "ecmwf_ifs",
+   "targets": "2026-02-18 18:00:00 … 2026-02-20 17:00:00",
+   "coverage": 1.0,
+   "max_published_at": "2026-02-18 07:00:00",
+   "run_time": "2026-02-18 00:00:00"
+  },
+  {
+   "source": "single",
+   "model": "ecmwf_ifs",
+   "targets": "2026-02-18 18:00:00 … 2026-02-20 17:00:00",
+   "coverage": 1.0,
+   "max_published_at": "2026-02-18 01:00:00",
+   "run_time": "2026-02-17 18:00:00"
+  },
+  {
+   "source": "single",
+   "model": "ecmwf_ifs",
+   "targets": "2026-02-18 18:00:00 … 2026-02-20 17:00:00",
+   "coverage": 0.875,
+   "max_published_at": "2026-02-17 19:00:00",
+   "run_time": "2026-02-17 12:00:00"
+  },
+  {
+   "source": "single",
+   "model": "ecmwf_ifs",
+   "targets": "2026-02-18 18:00:00 … 2026-02-20 17:00:00",
+   "coverage": 0.75,
+   "max_published_at": "2026-02-17 13:00:00",
+   "run_time": "2026-02-17 06:00:00"
+  },
+  {
+   "source": "previous",
+   "model": "ecmwf_ifs025",
+   "targets": "2026-02-18 18:00:00 … 2026-02-20 17:00:00",
+   "coverage": 1.0,
+   "max_published_at": "2026-02-18 07:00:00",
+   "days_used": {
+    "2": 24,
+    "1": 12,
+    "3": 12
+   }
+  },
+  {
+   "source": "previous",
+   "model": "gfs_seamless",
+   "targets": "2026-02-18 18:00:00 … 2026-02-20 17:00:00",
+   "coverage": 1.0,
+   "max_published_at": "2026-02-18 05:00:00",
+   "days_used": {
+    "2": 24,
+    "1": 12,
+    "3": 12
+   }
+  },
+  {
+   "source": "previous",
+   "model": "icon_seamless",
+   "targets": "2026-02-18 18:00:00 … 2026-02-20 17:00:00",
+   "coverage": 1.0,
+   "max_published_at": "2026-02-18 04:00:00",
+   "days_used": {
+    "2": 24,
+    "1": 12,
+    "3": 12
+   }
+  }
+ ],
+ "checks": {
+  "all_sources_published_before_as_of": true,
+  "rows": 48,
+  "nan_in_forecast": false
+ }
+}

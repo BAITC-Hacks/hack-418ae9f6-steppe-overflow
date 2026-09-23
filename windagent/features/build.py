@@ -41,7 +41,7 @@ def issue_frame(issue_date, store: DataStore | None = None, settings: dict | Non
         except LookupError:
             f = pd.DataFrame(index=t)
         for c in f.columns:
-            if c in ("run_time", "published_at"):
+            if c == "published_at":
                 continue
             out[f"{pre}__{c}"] = f[c].to_numpy()
         # Возраст прогона в момент выпуска: чем свежее, тем точнее
@@ -63,7 +63,7 @@ def issue_frame(issue_date, store: DataStore | None = None, settings: dict | Non
         pre = prefix[model]
         f = store.previous_runs(model, t)
         for c in f.columns:
-            if c in ("run_time", "published_at"):
+            if c == "published_at":
                 continue
             out[f"{pre}__{c}"] = f[c].to_numpy()
 
