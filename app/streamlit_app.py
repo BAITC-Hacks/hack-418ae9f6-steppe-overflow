@@ -405,9 +405,9 @@ def page_live():
                                    "Живой прогноз на настоящее «завтра» по свежим прогнозам погоды"))
     left, _ = forecast_controls("Сейчас")
     with left:
-        c1, c2 = st.columns([1, 3], vertical_alignment="center")
-        refresh = c1.button("Обновить сейчас", icon=":material/sync:", help="Скачать свежую погоду и запустить агента")
-        c2.caption("Планировщик на сервере каждые 15 минут проверяет новые прогоны ECMWF и сам запускает агента.")
+        with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+            refresh = st.button("Обновить", icon=":material/sync:", help="Скачать свежую погоду и запустить агента")
+            st.caption("Планировщик на сервере каждые 15 минут проверяет новые прогоны ECMWF и сам запускает агента.")
     if refresh:
         with st.spinner("Скачиваю свежие прогнозы погоды и запускаю агента…"):
             live.run_live(load_model(), mode="rules", log=lambda m: None)
