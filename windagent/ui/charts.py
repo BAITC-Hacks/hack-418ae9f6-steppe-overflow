@@ -97,3 +97,29 @@ def error_by_horizon_chart(p: pd.DataFrame) -> go.Figure:
                                           yaxis_title="MAE"))
     fig.update_yaxes(rangemode="tozero")
     return fig
+
+
+VERSION_COLORS = ["#2a78d6", "#1baf7a", "#eda100"]
+
+
+def versions_chart(versions: list[dict]) -> go.Figure:
+    """Версии прогноза агента на одном графике: v1 (на момент выпуска) и ревизии после новых прогонов."""
+    fig = go.Figure()
+    for i, v in enumerate(versions):
+        f = v.get("forecast")
+        if f is None:
+            continue
+        label = f"v{v['version']} — данные на {v['as_of_local']}"
+        fig.add_trace(go.Scatter(
+            x=f["target_time_local"], y=f["p_farm"], name=label,
+            line=dict(color=VERSION_COLORS[i % len(VERSION_COLORS)], width=2.5 if i == len(versions) - 1 else 1.8,
+                      shape="spline", smoothing=0.3),
+            hovertemplate=f"v{v['version']} %{{y:.2f}}<extra></extra>",
+        ))
+    first = next((v["forecast"] for v in versions if v.get("forecast") is not None), None)
+    if first is not None:
+        _day_divider(fig, first)
+    fig.update_layout(**theme.base_layout(height=360, yaxis_title="мощность, доля номинала"))
+    fig.update_yaxes(range=[0, 1.02], tickformat=".0%")
+    fig.update_xaxes(tickformat="%d.%m %H:%M")
+    return fig

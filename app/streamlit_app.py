@@ -14,6 +14,7 @@ import streamlit as st
 from windagent import forecast
 from windagent.config import load_settings
 from windagent.eval import metrics
+from windagent.ui import agent_view as av
 from windagent.ui import charts, data, theme
 
 st.set_page_config(page_title="Steppe Wind — прогноз ВЭС", page_icon="🌬️", layout="wide")
@@ -242,6 +243,116 @@ def page_quality():
             "а не модель, ограничивает точность.")
 
 
+def client_id() -> str:
+    """Адрес посетителя (за Caddy — из X-Forwarded-For) для дневных лимитов."""
+    try:
+        fwd = st.context.headers.get("X-Forwarded-For", "")
+        return fwd.split(",")[0].strip() or (st.context.ip_address or "local")
+    except Exception:
+        return "local"
+
+
+def render_run(run: dict) -> None:
+    last = run["versions"][-1]
+    c = st.columns(3)
+    c[0].metric("Режим агента", av.MODE_NAMES.get(run["mode"], run["mode"]))
+    c[1].metric("Версий прогноза", len(run["versions"]),
+                help="v1 — на момент выпуска (идёт в сдачу); v2 — ревизия после нового прогона погоды")
+    c[2].metric("Шагов", len(run["steps"]))
+
+    st.subheader("Объяснение для диспетчера")
+    st.info(last["explanation"])
+    if len(run["versions"]) > 1:
+        with st.expander(f"Объяснение версии v1 (на момент выпуска, {run['versions'][0]['as_of_local']})"):
+            st.write(run["versions"][0]["explanation"])
+    st.caption(f"Итог агента: {run['summary']}")
+
+    st.subheader("Версии прогноза")
+    st.plotly_chart(charts.versions_chart(run["versions"]), use_container_width=True)
+    st.caption("v1 построена строго по данным на 14:00 и совпадает с файлом сдачи. Ревизия выпускается, "
+               "только если новый прогон ECMWF заметно меняет прогноз.")
+
+    st.subheader("Шаги агента")
+    for step in run["steps"]:
+        icon, title = av.STEP_TITLES.get(step["tool"], ("•", step["tool"]))
+        as_of_local = pd.Timestamp(step["as_of_utc"]) + pd.Timedelta(hours=OFFSET)
+        line = f"{icon} **{step['step']}. {title}** · данные на {as_of_local:%d.%m %H:%M}"
+        with st.expander(f"{line} — {av.step_summary(step)}", expanded=False):
+            if step.get("reason"):
+                st.caption(f"Почему: {step['reason']}")
+            if step.get("args"):
+                st.json(step["args"], expanded=False)
+            if step.get("result") is not None:
+                st.json(step["result"], expanded=False)
+
+
+def page_agent():
+    st.title("AI-агент")
+    st.caption("Агент сам проходит цикл: погода → проверка данных → модель → анализ → публикация → "
+               "пересчёт при выходе нового прогона. Числа считают инструменты, агент принимает решения и объясняет.")
+    d = issue_picker("issue_agent")
+    key = f"live_run_{d:%Y-%m-%d}"
+
+    col1, col2 = st.columns([1, 2])
+    llm = av.llm_configured()
+    with col1:
+        mode = st.radio("Режим", ["LLM (OpenAI)", "Правила"], index=0 if llm else 1, horizontal=True,
+                        disabled=not llm, help=None if llm else "LLM-режим включается ключом OPENAI_API_KEY на сервере")
+        start = st.button("▶ Запустить агента сейчас", type="primary")
+    with col2:
+        st.caption("Живой запуск повторяет весь цикл заново на архивных данных этой даты (~3–30 с). "
+                   "LLM-запуски ограничены по числу в день.")
+
+    if start:
+        use_llm = llm and mode.startswith("LLM")
+        allowed, msg = (av.take_quota("agent_llm", client_id()) if use_llm else (True, ""))
+        if not allowed:
+            st.warning(f"LLM-режим недоступен: {msg}. Запускаю по правилам.")
+            use_llm = False
+        from windagent.agent.orchestrator import run_agent
+
+        with st.status("Агент работает…", expanded=True) as status:
+            r = run_agent(d, load_model(), mode="llm" if use_llm else "rules", out_dir=av.run_dir(d, live=True),
+                          log=lambda m: st.write(m.strip()))
+            status.update(label=f"Готово: {r['versions']} верс. за {r['steps']} шагов ({av.MODE_NAMES.get(r['mode'], r['mode'])})",
+                          state="complete", expanded=False)
+        st.session_state[key] = True
+
+    live = st.session_state.get(key)
+    run = av.load_run(av.run_dir(d, live=True)) if live else None
+    if run is None:
+        run = av.load_run(av.run_dir(d))
+        st.caption("Показан сохранённый запуск агента из репозитория.")
+    else:
+        st.caption("Показан только что выполненный запуск.")
+    if run is None:
+        st.warning("Для этой даты нет журнала агента — нажмите «Запустить агента сейчас».")
+        return
+    render_run(run)
+
+    st.subheader("Спросить о прогнозе")
+    if not llm:
+        st.caption("Чат работает, когда на сервере подключён ключ OpenAI.")
+        return
+    hist_key = f"chat_{d:%Y-%m-%d}"
+    history = st.session_state.setdefault(hist_key, [])
+    for m in history:
+        st.chat_message(m["role"]).write(m["content"])
+    q = st.chat_input("Например: когда завтра пик выработки и насколько прогноз уверенный?", max_chars=400)
+    if q:
+        st.chat_message("user").write(q)
+        allowed, msg = av.take_quota("chat", client_id())
+        if not allowed:
+            answer = f"Лимит чата: {msg}."
+        else:
+            try:
+                answer = av.chat_answer(q, run, history)
+            except Exception as e:  # сеть или API — не роняем страницу
+                answer = f"Не удалось получить ответ ({type(e).__name__})."
+        st.chat_message("assistant").write(answer)
+        history += [{"role": "user", "content": q}, {"role": "assistant", "content": answer}]
+
+
 def page_about():
     st.title("Как это работает")
     st.markdown(f"""
@@ -255,6 +366,8 @@ def page_about():
 3. **Модель.** Ансамбль градиентного бустинга и физической кривой мощности турбин; интервал P10–P90 —
    квантильный бустинг с конформной калибровкой.
 4. **Результат.** Прогноз по каждой турбине и по ВЭС + манифест: какие данные использованы и когда опубликованы.
+5. **Агент.** Проверяет погоду и результат, пишет объяснение, публикует версию v1, а после выхода нового прогона
+   ECMWF пересчитывает прогноз и публикует ревизию, если изменение существенное (экран «AI-агент»).
 
 **Честность ретроспективы.** Все данные проходят через `DataStore(as_of)`: он физически не отдаёт прогнозы погоды,
 опубликованные после момента выпуска. Это проверяется автотестами для всех 28 выпусков февраля.
@@ -268,6 +381,7 @@ def page_about():
 
 pages = [
     st.Page(page_forecast, title="Прогноз", icon="📈", default=True),
+    st.Page(page_agent, title="AI-агент", icon="🤖", url_path="agent"),
     st.Page(page_weather, title="Погода", icon="🌬️", url_path="weather"),
     st.Page(page_quality, title="Качество", icon="🎯", url_path="quality"),
     st.Page(page_about, title="Как это работает", icon="ℹ️", url_path="about"),
