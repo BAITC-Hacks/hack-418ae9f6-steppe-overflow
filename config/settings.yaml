@@ -34,3 +34,49 @@ forecast:
   horizon_days: 2
   test_first_issue: "2026-01-31"
   test_last_issue: "2026-02-27"
+
+weather:
+  cache_dir: "cache/weather"
+  # Переменные, которые запрашиваются у всех источников
+  variables:
+    - wind_speed_10m
+    - wind_speed_100m
+    - wind_direction_10m
+    - wind_direction_100m
+    - wind_gusts_10m
+    - temperature_2m
+    - surface_pressure
+    - relative_humidity_2m
+  # Open-Meteo Single Runs API: конкретный прогон с известным временем старта.
+  # Проверено: для этой точки реально доступен только ecmwf_ifs (архив с ~15.03.2024).
+  single_runs:
+    ecmwf_ifs:
+      run_hours: [0, 6, 12, 18]
+      publish_lag_h: 7        # консервативно: прогон доступен через 7 ч после старта
+      forecast_hours: 72
+      extra_variables: [wind_speed_120m, boundary_layer_height, cape]
+  # Open-Meteo Previous Runs API: значения *_previous_dayN.
+  # Проверено сопоставлением с прогонами ECMWF: previous_dayN для часа V берётся из
+  # прогона с заблаговременностью 24N…24N+5 ч, т.е. run ≈ floor6(V) − 24N ч.
+  previous_runs:
+    ecmwf_ifs025: {publish_lag_h: 7}
+    gfs_seamless: {publish_lag_h: 5}
+    icon_seamless: {publish_lag_h: 4}
+  previous_days: [1, 2, 3]
+  # С какой даты качаем архив прогнозов
+  archive_start: "2024-03-15"
+  archive_end: "2026-03-01"
+
+# Короткие имена моделей погоды — префиксы колонок признаков
+nwp_prefix:
+  ecmwf_ifs: ifs
+  ecmwf_ifs025: ifs025
+  gfs_seamless: gfs
+  icon_seamless: icon
+
+# Контрольные периоды: протокол как у теста (выпуск ежедневно, 48 ч вперёд).
+# Модель обучается только на данных до первого выпуска периода.
+validation:
+  feb2025: {first_issue: "2025-01-31", last_issue: "2025-02-27"}
+  dec2025: {first_issue: "2025-11-30", last_issue: "2025-12-30"}
+  jan2026: {first_issue: "2025-12-31", last_issue: "2026-01-29"}
