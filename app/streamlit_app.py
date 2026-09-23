@@ -69,6 +69,12 @@ def load_weather(d: str) -> pd.DataFrame:
     return data.weather_for_issue(d)
 
 
+@st.cache_data(show_spinner=False)
+def load_clim_delta(d: str, as_of: str) -> float | None:
+    sub = load_submission()
+    return data.climatology_delta_d1(sub[sub["issue_date"] == d], as_of)
+
+
 @st.cache_resource(show_spinner="Загружаю модель…")
 def load_model():
     return forecast.load_model()
@@ -326,8 +332,8 @@ def page_forecast():
     f = sub[sub["issue_date"] == d].reset_index(drop=True)
     m = load_manifest(f"{d:%Y-%m-%d}")
 
-    vs_clim = agent_brief(d, m)
-    kpi_tiles(f, vs_clim)
+    agent_brief(d, m)
+    kpi_tiles(f, load_clim_delta(f"{d:%Y-%m-%d}", m["as_of_utc"]))
     show_t = st.toggle("Показать турбины по отдельности", value=False)
     plot(charts.forecast_chart(f, show_turbines=show_t))
 

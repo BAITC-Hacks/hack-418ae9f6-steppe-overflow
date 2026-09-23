@@ -53,3 +53,12 @@ def test_app_runs_without_exceptions():
     # Переключение в режим «История — прогноз против факта»
     at.segmented_control[0].set_value("История — прогноз против факта").run()
     assert not at.exception, at.exception
+
+
+@needs_artifacts
+def test_climatology_delta_is_for_tomorrow_only():
+    f = _issue()
+    delta = data.climatology_delta_d1(f, f["issue_time_utc"].iloc[0])
+    d1 = f[f["lead_day"] == 1]["p_farm"].mean()
+    assert delta is not None and -1 < delta < 1
+    assert 0 <= d1 - delta <= 1  # норма — это доля номинала

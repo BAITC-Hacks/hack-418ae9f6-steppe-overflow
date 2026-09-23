@@ -73,3 +73,16 @@ def summarize(f: pd.DataFrame) -> dict:
         "high_hours": int((d1["p_farm"] >= 0.8).sum()),
         "calm_hours": int((d1["p_farm"] <= 0.05).sum()),
     }
+
+
+def climatology_delta_d1(f: pd.DataFrame, as_of) -> float | None:
+    """Отклонение средней мощности завтра от климатической нормы (тот же месяц и час, история до as_of)."""
+    h = scada.load_hourly()
+    h = h[h.index + pd.Timedelta("1h") <= pd.Timestamp(as_of)]
+    offset = load_settings()["scada"]["utc_offset_hours"]
+    loc = h.index + pd.Timedelta(hours=offset)
+    clim = h["p_farm"].groupby([loc.month, loc.hour]).mean()
+    d1 = f[f["lead_day"] == 1]
+    t = pd.DatetimeIndex(d1["target_time_local"])
+    norm = clim.reindex(pd.MultiIndex.from_arrays([t.month, t.hour])).mean()
+    return None if pd.isna(norm) else float(d1["p_farm"].mean() - norm)
