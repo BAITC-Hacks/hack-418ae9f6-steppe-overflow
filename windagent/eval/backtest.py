@@ -98,3 +98,36 @@ def report(preds: pd.DataFrame, target: str = "p_farm", reference: str = "clim")
     table = pd.concat([total, by_day], ignore_index=True)
     table = metrics.add_skill(table, reference, by=["lead_day"])
     return table.sort_values(["lead_day", "MAE"]).reset_index(drop=True)
+
+
+MODEL_TITLES = {
+    "phys_ifs": "ECMWF IFS → кривая мощности по анемометру турбин",
+    "curve_ifs": "ECMWF IFS → кривая, обученная на прогнозах",
+    "curve_ifs025": "ECMWF 0.25° (Previous Runs) → обученная кривая",
+    "curve_icon": "ICON (Previous Runs) → обученная кривая",
+    "curve_gfs": "GFS (Previous Runs) → обученная кривая",
+    "clim": "Климатология (среднее по месяцу и часу)",
+}
+
+
+def markdown_summary(preds: pd.DataFrame, title: str, target: str = "p_farm") -> str:
+    """Таблица MAE по моделям и периодам (колонка period) в Markdown."""
+    cols = {}
+    for per, g in preds.groupby("period", sort=False):
+        t = report(g, target)
+        cols[per] = t[t["lead_day"] == "all"].set_index("model")["MAE"]
+    tab = pd.DataFrame(cols)
+    tab["среднее"] = tab.mean(axis=1)
+    tab = tab.sort_values("среднее")
+    lines = [
+        f"# {title}",
+        "",
+        "MAE прогноза нормированной мощности ВЭС (0–1). Протокол: выпуск ежедневно в 14:00 (UTC+6), "
+        "прогноз на D+1 и D+2; обучение только на данных до первого выпуска периода.",
+        "",
+        "| Модель | " + " | ".join(tab.columns) + " |",
+        "|---|" + "---|" * len(tab.columns),
+    ]
+    for m, r in tab.iterrows():
+        lines.append(f"| {MODEL_TITLES.get(m, m)} | " + " | ".join(f"{v:.3f}" for v in r) + " |")
+    return "\n".join(lines) + "\n"

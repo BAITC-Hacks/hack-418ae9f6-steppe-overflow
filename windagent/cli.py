@@ -75,10 +75,14 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
         table = backtest.report(preds)
         print(f"\n=== {name}: выпуски {per['first_issue']} … {per['last_issue']} (ВЭС, p_farm) ===")
         print(table.round(4).to_string(index=False))
+    preds = pd.concat(all_preds, ignore_index=True)
     out = resolve("artifacts/backtest/baselines.parquet")
     out.parent.mkdir(parents=True, exist_ok=True)
-    pd.concat(all_preds, ignore_index=True).to_parquet(out, index=False)
-    print(f"\nПрогнозы сохранены: {out}")
+    preds.to_parquet(out, index=False)
+    md = resolve("artifacts/reports/baselines.md")
+    md.parent.mkdir(parents=True, exist_ok=True)
+    md.write_text(backtest.markdown_summary(preds, "Бейзлайны: результаты бэктеста"), encoding="utf-8")
+    print(f"\nПрогнозы: {out}\nСводка: {md}")
     return 0
 
 
