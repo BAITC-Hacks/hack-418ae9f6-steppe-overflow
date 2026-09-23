@@ -1,0 +1,17 @@
+# Внутренние документы команды — не публикуются
+SPEC.md
+
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.ipynb_checkpoints/
+.DS_Store
+.env
+
+# Промежуточные артефакты; финальный сабмит и модели добавляются явно
+artifacts/*
+!artifacts/.gitkeep
+!artifacts/submission/
+!artifacts/models/
+!artifacts/reports/

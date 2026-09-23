@@ -1,0 +1,36 @@
+# Общие настройки проекта. Все пути — относительно корня репозитория.
+
+site:
+  name: "ВЭС (2 турбины)"
+  # Центр ВЭС — используется для запросов погоды
+  latitude: 43.6442
+  longitude: 78.5372
+  turbines:
+    t1: {latitude: 43.643198, longitude: 78.538828}
+    t2: {latitude: 43.645150, longitude: 78.535604}
+
+scada:
+  files:
+    t1: "Dataset/Dataset HackAlemAI для участников 11.03.2023-28.02.2026 - turbine 1.csv"
+    t2: "Dataset/Dataset HackAlemAI для участников 11.03.2023-28.02.2026 - turbine 2.csv"
+  # Метки времени в данных — UTC+6 (проверено сопоставлением с реанализом ERA5)
+  utc_offset_hours: 6
+  # Час считается валидным, если в нём не меньше стольких 10-минутных записей
+  min_obs_per_hour: 4
+  qc:
+    # Простой: ветер выше порога, а мощность на минимуме
+    downtime_ws_min: 5.0
+    downtime_p_max: 0.01
+    # Ограничение мощности: плато одинаковой мощности не короче N записей при ветре выше порога
+    curtail_min_run: 6
+    curtail_ws_min: 5.0
+    curtail_p_min: 0.02
+    curtail_p_max: 0.95
+
+forecast:
+  # Локальное время выпуска прогноза (в часовом поясе данных, UTC+6)
+  issue_hour_local: 14
+  # Прогноз на D+1 00:00 … D+2 23:00 (локальное время)
+  horizon_days: 2
+  test_first_issue: "2026-01-31"
+  test_last_issue: "2026-02-27"
