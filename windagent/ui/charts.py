@@ -145,3 +145,32 @@ def versions_chart(versions: list[dict]) -> go.Figure:
     theme.style(fig, height=380, xaxis=TIME_AXIS,
                 yaxis=dict(range=[0, 1.08], tickformat=".0%", dtick=0.25, title="мощность, % номинала"))
     return fig
+
+
+def evaluation_chart(m: pd.DataFrame) -> go.Figure:
+    """Прогноз «сутки вперёд» против загруженного факта за весь период."""
+    d = m[m["lead_day"] == 1].sort_values("target_time_local")
+    fig = go.Figure()
+    if d["p_farm_q10"].notna().any():
+        fig.add_trace(go.Scatter(x=d["target_time_local"], y=d["p_farm_q90"], line=dict(width=0), hoverinfo="skip",
+                                 showlegend=False))
+        fig.add_trace(go.Scatter(x=d["target_time_local"], y=d["p_farm_q10"], line=dict(width=0), fill="tonexty",
+                                 fillcolor=theme.BAND, name="Интервал P10–P90", hoverinfo="skip"))
+    fig.add_trace(go.Scatter(x=d["target_time_local"], y=d["p_farm"], name="Прогноз на сутки вперёд",
+                             line=dict(color=theme.FORECAST, width=2), hovertemplate="прогноз <b>%{y:.0%}</b><extra></extra>"))
+    fig.add_trace(go.Scatter(x=d["target_time_local"], y=d["fact"], name="Ваши данные (факт)",
+                             line=dict(color=theme.FACT, width=1.5), hovertemplate="факт <b>%{y:.0%}</b><extra></extra>"))
+    theme.style(fig, height=420, xaxis=dict(tickformat="%d.%m", hoverformat="%d.%m %H:%M"),
+                yaxis=dict(range=[0, 1.05], tickformat=".0%", dtick=0.25, title="мощность, % номинала"))
+    return fig
+
+
+def daily_mae_chart(daily: pd.Series) -> go.Figure:
+    """Ошибка прогноза «сутки вперёд» по дням — один ряд, один цвет."""
+    fig = go.Figure(go.Bar(
+        x=daily.index, y=daily.values, marker=dict(color=theme.FORECAST, cornerradius=3, line=dict(width=0)),
+        hovertemplate="%{x|%d.%m}: MAE <b>%{y:.3f}</b><extra></extra>", name="MAE за сутки",
+    ))
+    theme.style(fig, height=280, hovermode="closest", bargap=0.35, showlegend=False,
+                xaxis=dict(tickformat="%d.%m"), yaxis=dict(rangemode="tozero", title="MAE за сутки"))
+    return fig

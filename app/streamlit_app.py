@@ -66,6 +66,35 @@ def load_model():
 
 # --- Общие элементы -----------------------------------------------------------------------
 
+CSS = """
+<style>
+/* Меньше пустого места над заголовком */
+[data-testid="stMainBlockContainer"] { padding-top: 2.2rem; }
+h1 { padding-top: 0.2rem; }
+
+/* Плавающая кнопка чата: круглая, внизу справа, на всех страницах */
+.st-key-chat_fab {
+  position: fixed; right: 28px; bottom: 28px; z-index: 1000; width: auto !important;
+}
+.st-key-chat_fab button {
+  width: 60px; height: 60px; border-radius: 50%; padding: 0;
+  background: #12803f; color: #fff; border: none;
+  box-shadow: 0 8px 24px rgba(12, 71, 65, 0.28);
+  transition: transform .15s ease, box-shadow .15s ease;
+}
+.st-key-chat_fab button:hover { background: #0f6e36; color: #fff; transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(12, 71, 65, 0.34); }
+.st-key-chat_fab button p { font-size: 26px; line-height: 1; }
+.st-key-chat_fab button [data-testid="stIconMaterial"] { font-size: 28px; }
+.st-key-chat_fab button div[aria-hidden="true"] { display: none; }  /* стрелка popover */
+[data-testid="stPopoverBody"]:has(.st-key-chat_panel) { width: min(420px, calc(100vw - 32px)); }
+</style>
+"""
+
+
+def inject_css() -> None:
+    st.html(CSS)
+
 
 def plot(fig) -> None:
     """Графики в фирменном стиле: своя тема вместо стандартной Streamlit, без панели инструментов."""
@@ -258,6 +287,64 @@ def client_id() -> str:
         return "local"
 
 
+SUGGESTIONS = [
+    "Когда завтра пик выработки?",
+    "Насколько уверенный прогноз и почему?",
+    "Будет ли штиль в ближайшие двое суток?",
+]
+
+
+@st.fragment
+def chat_panel() -> None:
+    with st.container(key="chat_panel"):
+        dates = data.test_issue_dates()
+        d = pd.Timestamp(st.session_state.get("issue_date", dates[9]))
+        st.markdown("**Спросите о прогнозе**")
+        st.caption(f"Выпуск {fmt_day(d)}, 14:00 — прогноз на {fmt_day(d + pd.Timedelta(days=1))} "
+                   f"и {fmt_day(d + pd.Timedelta(days=2))}. Дату можно сменить на любой странице.")
+        run = av.load_run(av.run_dir(d, live=True)) or av.load_run(av.run_dir(d))
+        if run is None:
+            st.warning("Для этой даты нет журнала агента.")
+            return
+        if not av.llm_configured():
+            st.info("Чат заработает после подключения ключа OpenAI на сервере. "
+                    "Пока объяснение прогноза — на странице «AI-агент».")
+            return
+        key = f"chat_{d:%Y-%m-%d}"
+        history = st.session_state.setdefault(key, [])
+        q = None
+        if history:
+            with st.container(height=300, border=False, autoscroll=True):
+                for m in history:
+                    avatar = ":material/person:" if m["role"] == "user" else str(ASSETS / "symbol.svg")
+                    st.chat_message(m["role"], avatar=avatar).write(m["content"])
+        else:
+            st.caption("Например:")
+            for i, sug in enumerate(SUGGESTIONS):
+                if st.button(sug, key=f"sug_{i}", use_container_width=True):
+                    q = sug
+        typed = st.chat_input("Ваш вопрос о прогнозе…", max_chars=400, key="chat_input_fab")
+        q = typed or q
+        if q:
+            allowed, msg = av.take_quota("chat", client_id())
+            if not allowed:
+                answer = f"Лимит чата: {msg}."
+            else:
+                try:
+                    with st.spinner("Думаю…"):
+                        answer = av.chat_answer(q, run, history)
+                except Exception as e:  # сеть или API — не роняем страницу
+                    answer = f"Не удалось получить ответ ({type(e).__name__})."
+            history += [{"role": "user", "content": q}, {"role": "assistant", "content": answer}]
+            st.rerun(scope="fragment")
+
+
+def chat_widget() -> None:
+    with st.container(key="chat_fab"):
+        with st.popover("", icon=":material/chat:"):
+            chat_panel()
+
+
 def render_run(run: dict) -> None:
     last = run["versions"][-1]
     c = st.columns(3)
@@ -336,27 +423,93 @@ def page_agent():
         return
     render_run(run)
 
-    st.subheader("Спросить о прогнозе")
-    if not llm:
-        st.caption("Чат работает, когда на сервере подключён ключ OpenAI.")
+    st.caption("Вопросы о прогнозе можно задать в чате — круглая кнопка внизу справа.")
+
+
+def page_upload():
+    st.title("Проверка на ваших данных")
+    st.caption("Загрузите фактическую выработку — сравним её с нашими прогнозами. Файлы обрабатываются "
+               "в памяти и нигде не сохраняются.")
+    with st.expander("Какие файлы подходят", expanded=False):
+        st.markdown(
+            "- **Формат датасета организаторов** — CSV с колонками: ID, время, скорость ветра, нормализованная "
+            "мощность, температура (10-минутные записи). Можно загрузить сразу два файла (турбины 1 и 2) — "
+            "посчитаем среднее по ВЭС.\n"
+            "- **Простой CSV** — колонка времени и колонка мощности (доля номинала 0–1 или проценты 0–100); "
+            "любая частота, приводится к часу.\n\n"
+            "Сравнение возможно для периодов наших прогнозов: **февраль 2026** (тестовый прогноз с интервалом "
+            "P10–P90) и контрольные периоды бэктеста — февраль 2025, декабрь 2025, январь 2026."
+        )
+    c1, c2 = st.columns([3, 1])
+    files = c1.file_uploader("CSV-файлы (до 2 шт.)", type=["csv", "txt"], accept_multiple_files=True)
+    tz = c2.selectbox("Часовой пояс меток", [6, 5, 0], format_func=lambda h: f"UTC+{h}" if h else "UTC",
+                      help="В датасете организаторов — UTC+6")
+    use_sample = c2.button("Попробовать на примере", help="Январь 2026 из датасета (турбина 1)")
+
+    payloads = []
+    if use_sample:
+        payloads = [("пример: январь 2026, турбина 1", data_sample())]
+        st.session_state["upload_sample"] = True
+    elif files:
+        payloads = [(f.name, f.getvalue()) for f in files[:2]]
+        st.session_state["upload_sample"] = False
+    elif st.session_state.get("upload_sample"):
+        payloads = [("пример: январь 2026, турбина 1", data_sample())]
+    if not payloads:
         return
-    hist_key = f"chat_{d:%Y-%m-%d}"
-    history = st.session_state.setdefault(hist_key, [])
-    for m in history:
-        st.chat_message(m["role"]).write(m["content"])
-    q = st.chat_input("Например: когда завтра пик выработки и насколько прогноз уверенный?", max_chars=400)
-    if q:
-        st.chat_message("user").write(q)
-        allowed, msg = av.take_quota("chat", client_id())
-        if not allowed:
-            answer = f"Лимит чата: {msg}."
-        else:
-            try:
-                answer = av.chat_answer(q, run, history)
-            except Exception as e:  # сеть или API — не роняем страницу
-                answer = f"Не удалось получить ответ ({type(e).__name__})."
-        st.chat_message("assistant").write(answer)
-        history += [{"role": "user", "content": q}, {"role": "assistant", "content": answer}]
+
+    from windagent.ui import upload
+
+    try:
+        parsed = [upload.parse_upload(raw, utc_offset_hours=tz) for _, raw in payloads]
+        fact = upload.combine([p for p, _ in parsed])
+        res = upload.evaluate(fact, load_catalog())
+    except upload.UploadError as e:
+        st.error(f"Не удалось обработать файл: {e}")
+        return
+    for (name, _), (_, kind) in zip(payloads, parsed):
+        st.caption(f"📄 {name} — {kind}")
+    p0, p1 = res["period"]
+    st.success(f"Сопоставлено {res['hours']} ч ({p0:%d.%m.%Y} – {p1:%d.%m.%Y}) с источником: {', '.join(res['sources'])}.")
+
+    cols = st.columns(4)
+    for i, lead in enumerate((1, 2)):
+        sc = res["by_lead"].get(lead)
+        if sc:
+            cols[i].metric(f"MAE, {'сутки вперёд' if lead == 1 else 'двое суток'}", f"{sc['MAE']:.3f}",
+                           help=f"RMSE {sc['RMSE']:.3f}, смещение {sc['bias']:+.3f}; {sc['n']} ч")
+    sc1 = res["by_lead"].get(1, {})
+    if "coverage_p10_p90" in sc1:
+        cols[2].metric("Попадание в P10–P90", f"{sc1['coverage_p10_p90']:.0%}", help="Номинал интервала — 80%")
+    if sc1:
+        cols[3].metric("Смещение (сутки вперёд)", f"{sc1['bias']:+.1%}",
+                       help="Положительное — прогноз в среднем выше факта")
+
+    plot(charts.evaluation_chart(res["merged"]))
+    if len(res["daily_mae"]) > 1:
+        st.subheader("Ошибка по дням")
+        plot(charts.daily_mae_chart(res["daily_mae"]))
+    m = res["merged"]
+    with st.expander("Таблица сопоставления"):
+        st.dataframe(m[["target_time_local", "lead_day", "p_farm", "fact", "source"]].rename(columns={
+            "target_time_local": "час (UTC+6)", "lead_day": "сутки", "p_farm": "прогноз", "fact": "факт",
+            "source": "источник"}), hide_index=True, use_container_width=True)
+    st.download_button("⬇️ Скачать сопоставление (CSV)", m.to_csv(index=False).encode("utf-8"),
+                       file_name="forecast_vs_fact.csv", mime="text/csv")
+
+
+@st.cache_data(show_spinner=False)
+def data_sample() -> bytes:
+    from windagent.ui import upload
+
+    return upload.sample_file()
+
+
+@st.cache_data(show_spinner=False)
+def load_catalog() -> pd.DataFrame:
+    from windagent.ui import upload
+
+    return upload.forecast_catalog()
 
 
 def page_about():
@@ -390,9 +543,12 @@ pages = [
     st.Page(page_agent, title="AI-агент", icon=":material/smart_toy:", url_path="agent"),
     st.Page(page_weather, title="Погода", icon=":material/air:", url_path="weather"),
     st.Page(page_quality, title="Качество", icon=":material/insights:", url_path="quality"),
+    st.Page(page_upload, title="Свои данные", icon=":material/upload_file:", url_path="upload"),
     st.Page(page_about, title="Как это работает", icon=":material/info:", url_path="about"),
 ]
 st.logo(str(ASSETS / "logo.svg"), icon_image=str(ASSETS / "symbol.svg"), size="large")
+inject_css()
+chat_widget()
 with st.sidebar:
     st.caption("Agentic AI прогноз выработки ВЭС · Steppe Overflow")
 st.navigation(pages).run()
