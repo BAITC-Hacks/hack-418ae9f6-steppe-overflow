@@ -1,4 +1,5 @@
-"""Графики интерфейса (Plotly). Одна ось Y на график, тонкие линии, легенда сверху."""
+"""Графики интерфейса (Plotly) в фирменном стиле: одна ось Y, тонкие линии, спокойная сетка,
+легенда сверху, выборочные подписи (пик), затонированная зона D+2."""
 
 from __future__ import annotations
 
@@ -7,78 +8,103 @@ import plotly.graph_objects as go
 
 from windagent.ui import theme
 
+HOUR_MS = 3_600_000
+TIME_AXIS = dict(tickformat="%H:%M<br>%d.%m", dtick=6 * HOUR_MS, hoverformat="%d.%m %H:%M")
 
-def _day_divider(fig: go.Figure, f: pd.DataFrame) -> None:
-    """Граница D+1 / D+2 — тонкая вертикаль с подписями суток."""
-    d2 = f.loc[f["lead_day"] == 2, "target_time_local"]
-    if len(d2):
-        x = pd.Timestamp(d2.min())
-        fig.add_vline(x=x, line_width=1, line_color=theme.MUTED, opacity=0.5)
-        for text, anchor in (("  D+2 →", "left"), ("← D+1  ", "right")):
-            fig.add_annotation(x=x, y=0.99, yref="paper", text=text, showarrow=False, xanchor=anchor,
-                               yanchor="top", font=dict(size=11, color=theme.MUTED))
+
+def _day_zones(fig: go.Figure, f: pd.DataFrame) -> None:
+    """Сутки D+1 и D+2: лёгкая тонировка D+2 и подписи зон вверху графика."""
+    x = pd.to_datetime(f["target_time_local"])
+    d2 = x[f["lead_day"].to_numpy() == 2]
+    if not len(d2):
+        return
+    start, end = d2.min() - pd.Timedelta(minutes=30), x.max() + pd.Timedelta(minutes=30)
+    fig.add_vrect(x0=start, x1=end, fillcolor=theme.D2_SHADE, line_width=0, layer="below")
+    fig.add_vline(x=start, line_width=1, line_color=theme.AXIS)
+    for x0, text in ((x.min(), "Завтра · D+1"), (start, "Послезавтра · D+2")):
+        fig.add_annotation(x=x0, y=1, yref="paper", xanchor="left", yanchor="top", xshift=6, yshift=-4,
+                           text=text, showarrow=False, font=dict(size=11, color=theme.MUTED))
+
+
+def _peak_label(fig: go.Figure, f: pd.DataFrame, col: str = "p_farm") -> None:
+    d1 = f[f["lead_day"] == 1]
+    if not len(d1):
+        return
+    peak = d1.loc[d1[col].idxmax()]
+    fig.add_trace(go.Scatter(
+        x=[peak["target_time_local"]], y=[peak[col]], mode="markers", showlegend=False, hoverinfo="skip",
+        marker=dict(size=9, color=theme.FORECAST, line=dict(width=2, color=theme.SURFACE)),
+    ))
+    fig.add_annotation(x=peak["target_time_local"], y=peak[col], text=f"<b>пик {peak[col]:.0%}</b>", showarrow=False,
+                       yshift=18, bgcolor="rgba(255,255,255,0.85)", borderpad=2, font=dict(size=12, color=theme.INK))
 
 
 def forecast_chart(f: pd.DataFrame, fact: pd.Series | None = None, show_turbines: bool = False) -> go.Figure:
     """Прогноз ВЭС на 48 ч: линия + интервал P10–P90, факт (если известен), турбины по желанию."""
     x = f["target_time_local"]
     fig = go.Figure()
+    _day_zones(fig, f)
     if "p_farm_q10" in f:
         fig.add_trace(go.Scatter(x=x, y=f["p_farm_q90"], line=dict(width=0), hoverinfo="skip",
                                  showlegend=False, name="P90"))
         fig.add_trace(go.Scatter(x=x, y=f["p_farm_q10"], line=dict(width=0), fill="tonexty",
                                  fillcolor=theme.BAND, name="Интервал P10–P90",
                                  customdata=f[["p_farm_q10", "p_farm_q90"]],
-                                 hovertemplate="P10–P90: %{customdata[0]:.2f}–%{customdata[1]:.2f}<extra></extra>"))
+                                 hovertemplate="интервал %{customdata[0]:.0%}–%{customdata[1]:.0%}<extra></extra>"))
     fig.add_trace(go.Scatter(x=x, y=f["p_farm"], name="Прогноз ВЭС",
-                             line=dict(color=theme.FORECAST, width=2.5, shape="spline", smoothing=0.3),
-                             hovertemplate="прогноз %{y:.2f}<extra></extra>"))
+                             line=dict(color=theme.FORECAST, width=2.6, shape="spline", smoothing=0.4),
+                             hovertemplate="прогноз <b>%{y:.0%}</b><extra></extra>"))
     if show_turbines:
         for col, name in (("p_t1", "Турбина 1"), ("p_t2", "Турбина 2")):
-            fig.add_trace(go.Scatter(x=x, y=f[col], name=name, line=dict(color=theme.TURBINE_COLORS[col], width=1.5),
-                                     hovertemplate=f"{name.lower()} %{{y:.2f}}<extra></extra>"))
+            fig.add_trace(go.Scatter(x=x, y=f[col], name=name,
+                                     line=dict(color=theme.TURBINE_COLORS[col], width=1.4),
+                                     hovertemplate=f"{name.lower()} %{{y:.0%}}<extra></extra>"))
     if fact is not None and fact.notna().any():
         fig.add_trace(go.Scatter(x=x, y=fact.to_numpy(), name="Факт SCADA", mode="lines+markers",
-                                 line=dict(color=theme.FACT, width=2), marker=dict(size=6),
-                                 hovertemplate="факт %{y:.2f}<extra></extra>"))
-    _day_divider(fig, f)
-    fig.update_layout(**theme.base_layout(height=420, yaxis_title="мощность, доля номинала"))
-    fig.update_yaxes(range=[0, 1.02], tickformat=".0%")
-    fig.update_xaxes(tickformat="%d.%m %H:%M")
+                                 line=dict(color=theme.FACT, width=1.8),
+                                 marker=dict(size=5, color=theme.FACT, line=dict(width=1.5, color=theme.SURFACE)),
+                                 hovertemplate="факт <b>%{y:.0%}</b><extra></extra>"))
+    _peak_label(fig, f)
+    theme.style(fig, height=430, xaxis=TIME_AXIS,
+                yaxis=dict(range=[0, 1.08], tickformat=".0%", dtick=0.25, title="мощность, % номинала"))
     return fig
 
 
 def weather_chart(w: pd.DataFrame) -> go.Figure:
-    """Прогноз ветра на 100 м от каждой погодной модели — разброс = неопределённость."""
+    """Прогноз ветра на 100 м от каждой погодной модели. Разброс между моделями = неопределённость."""
     fig = go.Figure()
-    for src in ("ifs", "icon", "gfs", "ifs025"):
+    _day_zones(fig, w)
+    for ws, label in ((3, "начало выработки ≈ 3 м/с"), (12, "номинал ≈ 12 м/с")):
+        fig.add_hline(y=ws, line_width=1, line_color=theme.AXIS, layer="below")
+        fig.add_annotation(x=0, xref="paper", y=ws, text=label, showarrow=False, xanchor="left", yanchor="bottom",
+                           xshift=4, bgcolor="rgba(255,255,255,0.8)", font=dict(size=11, color=theme.MUTED))
+    for src in theme.NWP_ORDER:
         col = f"{src}__wind_speed_100m"
         if col in w:
+            main = src == "ifs"
             fig.add_trace(go.Scatter(
                 x=w["target_time_local"], y=w[col], name=theme.NWP_NAMES[src],
-                line=dict(color=theme.NWP_COLORS[src], width=2.5 if src == "ifs" else 1.5),
-                hovertemplate=f"{src.upper()} %{{y:.1f}} м/с<extra></extra>",
+                line=dict(color=theme.NWP_COLORS[src], width=2.8 if main else 1.5, shape="spline", smoothing=0.4),
+                opacity=1 if main else 0.9,
+                hovertemplate=f"{theme.NWP_NAMES[src]}: <b>%{{y:.1f}} м/с</b><extra></extra>",
             ))
-    _day_divider(fig, w)
-    fig.update_layout(**theme.base_layout(height=380, yaxis_title="ветер на 100 м, м/с"))
-    fig.update_yaxes(rangemode="tozero")
-    fig.update_xaxes(tickformat="%d.%m %H:%M")
+    theme.style(fig, height=400, xaxis=TIME_AXIS, yaxis=dict(rangemode="tozero", title="ветер на 100 м, м/с"))
     return fig
 
 
 def mae_by_model_chart(table: pd.DataFrame) -> go.Figure:
-    """MAE по моделям и периодам. Основная модель — синим, опорные — приглушённо."""
+    """MAE по моделям и периодам. Основная модель — зелёным, опорные — синим и серым."""
     fig = go.Figure()
     for model in table.index:
         fig.add_trace(go.Bar(
             x=table.columns, y=table.loc[model], name=theme.MODEL_NAMES.get(model, model),
-            marker=dict(color=theme.MODEL_COLORS.get(model, theme.MUTED), cornerradius=4),
+            marker=dict(color=theme.MODEL_COLORS.get(model, theme.MUTED), cornerradius=4, line=dict(width=0)),
             text=[f"{v:.3f}" for v in table.loc[model]], textposition="outside",
-            hovertemplate="%{x}: MAE %{y:.3f}<extra></extra>",
+            textfont=dict(size=11, color=theme.MUTED), cliponaxis=False,
+            hovertemplate="%{x}: MAE <b>%{y:.3f}</b><extra></extra>",
         ))
-    fig.update_layout(**theme.base_layout(height=360, barmode="group", bargap=0.45, bargroupgap=0.12,
-                                          hovermode="closest", yaxis_title="MAE (доля номинала)"))
-    fig.update_yaxes(rangemode="tozero")
+    theme.style(fig, height=380, barmode="group", bargap=0.42, bargroupgap=0.14, hovermode="closest",
+                yaxis=dict(rangemode="tozero", title="MAE, доля номинала"), xaxis=dict(showline=True, ticks=""))
     return fig
 
 
@@ -91,35 +117,31 @@ def error_by_horizon_chart(p: pd.DataFrame) -> go.Figure:
             continue
         e = (g["p_farm_pred"] - g["p_farm"]).abs().groupby(g["horizon_h"]).mean()
         fig.add_trace(go.Scatter(x=e.index, y=e.values, name=theme.MODEL_NAMES[model],
-                                 line=dict(color=theme.MODEL_COLORS[model], width=2.5 if model == "ensemble" else 1.5),
-                                 hovertemplate="%{x} ч: MAE %{y:.3f}<extra></extra>"))
-    fig.update_layout(**theme.base_layout(height=340, xaxis_title="горизонт от момента прогноза, ч",
-                                          yaxis_title="MAE"))
-    fig.update_yaxes(rangemode="tozero")
+                                 line=dict(color=theme.MODEL_COLORS[model], width=2.6 if model == "ensemble" else 1.6,
+                                           shape="spline", smoothing=0.4),
+                                 hovertemplate=f"{theme.MODEL_NAMES[model]}: <b>%{{y:.3f}}</b><extra></extra>"))
+    theme.style(fig, height=340, xaxis=dict(title="горизонт от момента прогноза, ч", dtick=6),
+                yaxis=dict(rangemode="tozero", title="MAE"))
     return fig
 
 
-VERSION_COLORS = ["#2a78d6", "#1baf7a", "#eda100"]
-
-
 def versions_chart(versions: list[dict]) -> go.Figure:
-    """Версии прогноза агента на одном графике: v1 (на момент выпуска) и ревизии после новых прогонов."""
+    """Версии прогноза агента: v1 (на момент выпуска) и ревизии после новых прогонов погоды."""
     fig = go.Figure()
+    first = next((v["forecast"] for v in versions if v.get("forecast") is not None), None)
+    if first is not None:
+        _day_zones(fig, first)
     for i, v in enumerate(versions):
         f = v.get("forecast")
         if f is None:
             continue
-        label = f"v{v['version']} — данные на {v['as_of_local']}"
+        last = i == len(versions) - 1
         fig.add_trace(go.Scatter(
-            x=f["target_time_local"], y=f["p_farm"], name=label,
-            line=dict(color=VERSION_COLORS[i % len(VERSION_COLORS)], width=2.5 if i == len(versions) - 1 else 1.8,
-                      shape="spline", smoothing=0.3),
-            hovertemplate=f"v{v['version']} %{{y:.2f}}<extra></extra>",
+            x=f["target_time_local"], y=f["p_farm"], name=f"v{v['version']} — данные на {v['as_of_local']}",
+            line=dict(color=theme.VERSION_COLORS[i % len(theme.VERSION_COLORS)], width=2.6 if last else 1.6,
+                      shape="spline", smoothing=0.4),
+            hovertemplate=f"v{v['version']}: <b>%{{y:.0%}}</b><extra></extra>",
         ))
-    first = next((v["forecast"] for v in versions if v.get("forecast") is not None), None)
-    if first is not None:
-        _day_divider(fig, first)
-    fig.update_layout(**theme.base_layout(height=360, yaxis_title="мощность, доля номинала"))
-    fig.update_yaxes(range=[0, 1.02], tickformat=".0%")
-    fig.update_xaxes(tickformat="%d.%m %H:%M")
+    theme.style(fig, height=380, xaxis=TIME_AXIS,
+                yaxis=dict(range=[0, 1.08], tickformat=".0%", dtick=0.25, title="мощность, % номинала"))
     return fig

@@ -12,12 +12,13 @@ import pandas as pd
 import streamlit as st
 
 from windagent import forecast
-from windagent.config import load_settings
+from windagent.config import ROOT, load_settings
 from windagent.eval import metrics
 from windagent.ui import agent_view as av
 from windagent.ui import charts, data, theme
 
-st.set_page_config(page_title="Steppe Wind — прогноз ВЭС", page_icon="🌬️", layout="wide")
+ASSETS = ROOT / "app" / "assets"
+st.set_page_config(page_title="Steppe Wind — прогноз ВЭС", page_icon=str(ASSETS / "favicon.svg"), layout="wide")
 
 SETTINGS = load_settings()
 OFFSET = SETTINGS["scada"]["utc_offset_hours"]
@@ -64,6 +65,11 @@ def load_model():
 
 
 # --- Общие элементы -----------------------------------------------------------------------
+
+
+def plot(fig) -> None:
+    """Графики в фирменном стиле: своя тема вместо стандартной Streamlit, без панели инструментов."""
+    st.plotly_chart(fig, use_container_width=True, theme=None, config=theme.PLOTLY_CONFIG)
 
 
 def issue_picker(key: str) -> pd.Timestamp:
@@ -133,7 +139,7 @@ def page_forecast():
 
     stat_tiles(f)
     show_t = st.toggle("Показать турбины по отдельности", value=False)
-    st.plotly_chart(charts.forecast_chart(f, show_turbines=show_t), use_container_width=True)
+    plot(charts.forecast_chart(f, show_turbines=show_t))
     leakage_badge(m)
 
     c1, c2 = st.columns([1, 2])
@@ -174,7 +180,7 @@ def page_history():
     st.caption("Модель обучена только на данных до начала периода; факт на момент прогноза был неизвестен.")
     stat_tiles(f, extra={"label": "Ошибка этого выпуска (MAE)", "value": f"{mae:.3f}",
                          "help": "Средняя абсолютная ошибка по 48 часам, в долях номинала"})
-    st.plotly_chart(charts.forecast_chart(f, fact=g["p_farm"].reset_index(drop=True)), use_container_width=True)
+    plot(charts.forecast_chart(f, fact=g["p_farm"].reset_index(drop=True)))
 
 
 def page_weather():
@@ -183,7 +189,7 @@ def page_weather():
                "как в реальной работе диспетчера.")
     d = issue_picker("issue_weather")
     w = load_weather(f"{d:%Y-%m-%d}")
-    st.plotly_chart(charts.weather_chart(w), use_container_width=True)
+    plot(charts.weather_chart(w))
     st.caption("Чем сильнее расходятся модели, тем неувереннее прогноз — это учитывается в интервале P10–P90.")
 
     m = load_manifest(f"{d:%Y-%m-%d}")
@@ -233,9 +239,9 @@ def page_quality():
     c[1].metric("Лучше физической кривой", f"{(1 - ens / ref) * 100:.0f}%")
     c[2].metric("Лучше климатологии", f"{(1 - ens / clim) * 100:.0f}%")
 
-    st.plotly_chart(charts.mae_by_model_chart(table), use_container_width=True)
+    plot(charts.mae_by_model_chart(table))
     st.subheader("Ошибка по горизонту прогноза")
-    st.plotly_chart(charts.error_by_horizon_chart(bt), use_container_width=True)
+    plot(charts.error_by_horizon_chart(bt))
     with st.expander("Таблица MAE"):
         st.dataframe(table.rename(index=theme.MODEL_NAMES).round(3), use_container_width=True)
     st.info("**Почему не точнее?** Если подставить в модель фактический ветер на турбине, ошибка была бы всего "
@@ -268,7 +274,7 @@ def render_run(run: dict) -> None:
     st.caption(f"Итог агента: {run['summary']}")
 
     st.subheader("Версии прогноза")
-    st.plotly_chart(charts.versions_chart(run["versions"]), use_container_width=True)
+    plot(charts.versions_chart(run["versions"]))
     st.caption("v1 построена строго по данным на 14:00 и совпадает с файлом сдачи. Ревизия выпускается, "
                "только если новый прогон ECMWF заметно меняет прогноз.")
 
@@ -380,13 +386,13 @@ def page_about():
 
 
 pages = [
-    st.Page(page_forecast, title="Прогноз", icon="📈", default=True),
-    st.Page(page_agent, title="AI-агент", icon="🤖", url_path="agent"),
-    st.Page(page_weather, title="Погода", icon="🌬️", url_path="weather"),
-    st.Page(page_quality, title="Качество", icon="🎯", url_path="quality"),
-    st.Page(page_about, title="Как это работает", icon="ℹ️", url_path="about"),
+    st.Page(page_forecast, title="Прогноз", icon=":material/show_chart:", default=True),
+    st.Page(page_agent, title="AI-агент", icon=":material/smart_toy:", url_path="agent"),
+    st.Page(page_weather, title="Погода", icon=":material/air:", url_path="weather"),
+    st.Page(page_quality, title="Качество", icon=":material/insights:", url_path="quality"),
+    st.Page(page_about, title="Как это работает", icon=":material/info:", url_path="about"),
 ]
+st.logo(str(ASSETS / "logo.svg"), icon_image=str(ASSETS / "symbol.svg"), size="large")
 with st.sidebar:
-    st.markdown("### 🌬️ Steppe Wind")
-    st.caption("Agentic AI прогноз выработки ВЭС · команда Steppe Overflow")
+    st.caption("Agentic AI прогноз выработки ВЭС · Steppe Overflow")
 st.navigation(pages).run()

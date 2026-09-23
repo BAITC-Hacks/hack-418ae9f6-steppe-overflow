@@ -1,48 +1,79 @@
-"""Цвета и оформление графиков. Цвет закреплён за сущностью на всех экранах.
+"""Фирменный стиль графиков Steppe Wind. Цвет закреплён за сущностью на всех экранах.
 
-Палитра проверена валидатором (CVD, контраст) для светлой и тёмной темы.
-Светлые оттенки (аква, жёлтый) слабо контрастны с фоном — поэтому у графиков
-всегда есть легенда и таблица с теми же данными.
+Палитра проверена валидатором (цветовая слепота, контраст) на белом фоне:
+зелёный прогноз не соседствует с оранжевым/красным — пара «зелёный–оранжевый»
+неразличима при дейтеранопии. Жёлтый и розовый слабо контрастны с фоном,
+поэтому у графиков всегда есть легенда и табличный вид.
 """
 
-FORECAST = "#2a78d6"   # прогноз ВЭС — синий
-FACT = "#eb6834"       # факт SCADA — оранжевый
-BAND = "rgba(42,120,214,0.14)"  # интервал P10–P90 — синяя «вуаль»
-MUTED = "#898781"      # второстепенные опорные линии
-GRID = "rgba(137,135,129,0.25)"
+import plotly.graph_objects as go
 
-# Погодные модели: фиксированный порядок слотов палитры
-NWP_COLORS = {
-    "ifs": "#2a78d6",
-    "icon": "#eb6834",
-    "gfs": "#1baf7a",
-    "ifs025": "#eda100",
-}
+# Бренд (логотип)
+BRAND_DARK = "#0c4741"
+BRAND_GREEN = "#00b72b"
+
+# Текст и служебные элементы
+INK = "#0c2f2b"
+MUTED = "#5b6b66"
+GRID = "#e6eee9"
+AXIS = "#c9d8cf"
+SURFACE = "#ffffff"
+FONT = 'Manrope, Roboto, system-ui, -apple-system, "Segoe UI", sans-serif'
+
+# Данные
+FORECAST = "#1a9e4b"                 # прогноз ВЭС — зелёный
+FACT = "#4a3aa7"                     # факт SCADA — фиолетовый
+BAND = "rgba(26,158,75,0.13)"        # интервал P10–P90 — зелёная «вуаль»
+D2_SHADE = "rgba(12,71,65,0.035)"    # фон зоны D+2 (прогноз дальше — неопределённее)
+
+NWP_COLORS = {"ifs": "#1a9e4b", "gfs": "#2a78d6", "ifs025": "#eda100", "icon": "#e87ba4"}
+NWP_ORDER = ("ifs", "gfs", "ifs025", "icon")
 NWP_NAMES = {
-    "ifs": "ECMWF IFS 9 км (прогон с точным временем)",
+    "ifs": "ECMWF IFS 9 км",
     "icon": "ICON (DWD)",
     "gfs": "GFS (NOAA)",
     "ifs025": "ECMWF IFS 0.25°",
 }
-TURBINE_COLORS = {"p_t1": "#1baf7a", "p_t2": "#eda100"}
+TURBINE_COLORS = {"p_t1": "#2a78d6", "p_t2": "#eda100"}
 
 MODEL_NAMES = {
     "ensemble": "Основная модель (ансамбль)",
     "phys_ifs": "ECMWF → кривая мощности",
     "clim": "Климатология",
 }
-MODEL_COLORS = {"ensemble": FORECAST, "phys_ifs": "#1baf7a", "clim": MUTED}
+MODEL_COLORS = {"ensemble": "#1a9e4b", "phys_ifs": "#2a78d6", "clim": "#b3c2bb"}
+VERSION_COLORS = ["#1a9e4b", "#2a78d6", "#eda100"]
+
+PLOTLY_CONFIG = {"displayModeBar": False, "responsive": True}
 
 
 def base_layout(**kw) -> dict:
-    """Спокойное оформление: тонкая сетка, легенда сверху, единая подсказка по оси X."""
-    layout = dict(
-        margin=dict(l=8, r=8, t=36, b=8),
-        hovermode="x unified",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, title=None),
-        xaxis=dict(showgrid=False, ticks="outside", ticklen=4),
-        yaxis=dict(gridcolor=GRID, gridwidth=1, zeroline=False),
-        font=dict(family='system-ui, -apple-system, "Segoe UI", sans-serif', size=13),
+    """Спокойное оформление: тонкая сетка, легенда сверху слева, единая подсказка."""
+    axis = dict(
+        showgrid=True, gridcolor=GRID, gridwidth=1, zeroline=False, showline=True, linecolor=AXIS,
+        ticks="outside", tickcolor=AXIS, ticklen=4, tickfont=dict(color=MUTED, size=12),
+        title=dict(font=dict(color=MUTED, size=12), standoff=10), automargin=True,
     )
+    layout = dict(
+        template="none",
+        paper_bgcolor=SURFACE,
+        plot_bgcolor=SURFACE,
+        margin=dict(l=12, r=16, t=48, b=12),
+        hovermode="x unified",
+        hoverlabel=dict(bgcolor=SURFACE, bordercolor=AXIS, font=dict(family=FONT, size=12, color=INK)),
+        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, title=None,
+                    font=dict(size=12, color=INK), bgcolor="rgba(0,0,0,0)"),
+        xaxis={**axis, "showgrid": False},
+        yaxis={**axis, "showline": False, "ticks": ""},
+        font=dict(family=FONT, size=13, color=INK),
+    )
+    for key in ("xaxis", "yaxis"):
+        if key in kw:
+            layout[key] = {**layout[key], **kw.pop(key)}
     layout.update(kw)
     return layout
+
+
+def style(fig: go.Figure, **kw) -> go.Figure:
+    fig.update_layout(**base_layout(**kw))
+    return fig
