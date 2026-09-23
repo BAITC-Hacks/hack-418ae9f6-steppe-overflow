@@ -1,5 +1,7 @@
 # Steppe Overflow — Agentic AI прогноз выработки ВЭС
 
+🌐 **https://steppewind.energy**
+
 > 🚧 Проект в разработке. README описывает только то, что уже реализовано и проверено.
 
 ## Кратко
@@ -237,4 +239,4 @@ uv run windagent weather download --what single,previous,era5
 
 ## Deployed-версия
 
-Не развёрнута.
+**https://steppewind.energy** — адрес веб-интерфейса проекта. Развёртывание ещё в процессе: адрес заработает вместе с веб-интерфейсом.

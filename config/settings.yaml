@@ -80,3 +80,8 @@ validation:
   feb2025: {first_issue: "2025-01-31", last_issue: "2025-02-27"}
   dec2025: {first_issue: "2025-11-30", last_issue: "2025-12-30"}
   jan2026: {first_issue: "2025-12-31", last_issue: "2026-01-29"}
+
+deploy:
+  # Публичный адрес веб-интерфейса (HTTPS через Caddy + Let's Encrypt)
+  domain: "steppewind.energy"
+  url: "https://steppewind.energy"
