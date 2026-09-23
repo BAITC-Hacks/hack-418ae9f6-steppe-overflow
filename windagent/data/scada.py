@@ -99,6 +99,22 @@ def load_turbine_10min(turbine: str, settings: dict | None = None) -> pd.DataFra
 
 
 def load_hourly(settings: dict | None = None) -> pd.DataFrame:
+    """Почасовой датасет ВЭС (кэшируется в памяти процесса; возвращается копия)."""
+    s = settings or load_settings()
+    return _load_hourly_cached(id(s) if settings is not None else 0, s).copy()
+
+
+_HOURLY_CACHE: dict = {}
+
+
+def _load_hourly_cached(key, settings: dict) -> pd.DataFrame:
+    if key not in _HOURLY_CACHE:
+        _HOURLY_CACHE.clear()
+        _HOURLY_CACHE[key] = _build_hourly(settings)
+    return _HOURLY_CACHE[key]
+
+
+def _build_hourly(settings: dict | None = None) -> pd.DataFrame:
     """Почасовой датасет ВЭС: колонки {ws,p,t,p_clean,n_obs,valid,clean}_{t1,t2} и p_farm.
 
     p_farm — среднее валидных турбин за час (если одна турбина без данных,

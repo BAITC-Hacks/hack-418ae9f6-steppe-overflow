@@ -295,7 +295,7 @@ STEPPER_CSS = """<style>
 .sw-dot { position: relative; z-index: 1; width: 30px; height: 30px; border-radius: 50%; display: flex;
   align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: #fff; background: #12803f;
   box-shadow: 0 0 0 4px #fff; }
-.sw-node.run .sw-dot { background: #dfe9f2; color: #0c4741; animation: swp 1s infinite; }
+.sw-node.run .sw-dot { background: #ebf1f7; color: #0c4741; animation: swp 1s infinite; }
 .sw-node.err .sw-dot { background: #d03b3b; }
 .sw-t { margin-top: 6px; font-size: 13px; font-weight: 700; color: #0c2f2b; }
 .sw-d { font-size: 12px; color: #5b6b66; line-height: 1.3; }

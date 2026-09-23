@@ -13,7 +13,7 @@ toolbarMode = "minimal"
 base = "light"
 primaryColor = "#12803f"            # кнопки и акценты (белый текст — контраст 5:1)
 backgroundColor = "#ffffff"
-secondaryBackgroundColor = "#dfe9f2"      # второй цвет бренда: выпадающие списки, поля ввода
+secondaryBackgroundColor = "#ebf1f7"      # второй цвет бренда: выпадающие списки, поля ввода
 textColor = "#0c2f2b"
 linkColor = "#12803f"
 borderColor = "#dce8e1"
@@ -25,4 +25,4 @@ greenColor = "#12803f"
 blueColor = "#0c6b62"
 
 [theme.sidebar]
-backgroundColor = "#dfe9f2"
+backgroundColor = "#ebf1f7"

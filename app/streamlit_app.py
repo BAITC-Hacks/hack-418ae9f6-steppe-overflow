@@ -107,16 +107,27 @@ h1 { padding-top: 0.2rem; }
 /* Навигация по датам: кнопки ← → по краям выбора */
 .st-key-datenav button { min-height: 42px; }
 
-/* Плавающая кнопка чата: круглая, внизу справа, на всех страницах */
+/* Плавающая кнопка чата: круглая, внизу справа, на всех страницах, с символом Steppe Wind */
 .st-key-chat_fab { position: fixed; right: 28px; bottom: 28px; z-index: 1000; width: auto !important; }
 .st-key-chat_fab button {
-  width: 60px; height: 60px; border-radius: 50%; padding: 0; background: #12803f; color: #fff; border: none;
+  width: 60px; height: 60px; border-radius: 50%; padding: 0; border: none;
+  background: #12803f url("data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA4OC41MiA0MS4yNSI+PHBhdGggZmlsbD0iI2ZmZmZmZiIgZD0iTTgwLjcyLDIyLjA3Yy0yLjQ3LDAtNC40NSwxLjEzLTYuMDYsMi43OGwtNi45Niw3LjE0LTYuNDcsNi42OWMtMS4yOCwxLjMyLTIuOTUsMi41Mi00Ljg0LDIuNTNsLTQuODkuMDRjLTEuNy4wMS0yLjg1LTEuMzQtMi44NS0zdi0xNS4wM2MwLS45OS0uODctMS4xLTEuNTEtMS4xNi0zLjEzLS4zLTUuNDksMS4wMS03LjU3LDMuMTdsLTEzLjI3LDEzLjc2Yy0xLjI5LDEuMzMtMi45MSwyLjI1LTQuNzgsMi4yNGwtNC41Mi0uMDJjLTEuNDIsMC0yLjctMS4zMi0yLjctMi43OGwtLjAyLTE1LjQyYzAtLjU3LS42MS0uOTYtMS4xMi0uOTZILjk3Qy41MSwyMi4wNywwLDIxLjU2LDAsMjEuMWwuMDktMTIuOTZDLjEyLDMuNjEsNC4xOC4wNiw4LjU4LjA0TDE2LjIsMGMuMzksMCwuOTEuNDYuOTEuOTFsLjA1LDE3LjI3YzAsLjc3LDEuMDEsMS4yNiwxLjUzLDEuMzYuNjguMTMsMS42Ni0uMDUsMi4yMS0uNjRsMTMuMDMtMTMuODJDMzkuNi0uOTEsNDMuMzkuMTIsNTAuNSwwYy41NCwwLDEuMDUuNSwxLjA1LDEuMDZsLjAyLDE2LjljMCwuNjkuNjcsMS4zNCwxLjE0LDEuNTIuNTYuMjEsMS43Ni4yMywyLjIzLS4yNmw2LjAzLTYuMTcsNy40NC04LjAxYzIuNTYtMi43NSw1Ljg3LTQuOTMsOS43MS00Ljk2TDg3LjMxLDBjLjI5LDAsLjc0LjEyLjkuMjlzLjI5LjY5LjI5Ljk1bC4wMiw3Ljg0LS4wMywxMi4wMmMwLC40MS0uMzcuOTQtLjguOTRoLTYuOTZaIi8+PC9zdmc+") center / 32px no-repeat;
   box-shadow: 0 8px 24px rgba(12, 71, 65, 0.28); transition: transform .15s ease, box-shadow .15s ease;
 }
-.st-key-chat_fab button:hover { background: #0f6e36; color: #fff; transform: translateY(-2px);
+.st-key-chat_fab button:hover { background-color: #0f6e36; transform: translateY(-2px);
   box-shadow: 0 12px 28px rgba(12, 71, 65, 0.34); }
-.st-key-chat_fab button [data-testid="stIconMaterial"] { font-size: 28px; }
-.st-key-chat_fab button div[aria-hidden="true"] { display: none; }  /* стрелка popover */
+.st-key-chat_fab button > div { visibility: hidden; }  /* иконка и стрелка popover — вместо них символ */
+/* Подсказка слева от кнопки: показывается при наведении и один раз после загрузки */
+.st-key-chat_fab::before, .st-key-chat_fab::after {
+  content: "Спросите AI-помощника"; position: absolute; right: 72px; top: 50%; transform: translateY(-50%);
+  white-space: nowrap; background: #0c4741; color: #fff; padding: 8px 12px; border-radius: 10px;
+  font: 600 13px Manrope, Roboto, sans-serif; box-shadow: 0 6px 18px rgba(12, 71, 65, .22);
+  pointer-events: none; opacity: 0;
+}
+.st-key-chat_fab::before { transition: opacity .15s ease; }
+.st-key-chat_fab:hover::before { opacity: 1; }
+.st-key-chat_fab::after { animation: sw-hint 6s ease 1.2s 1 both; }
+@keyframes sw-hint { 0% { opacity: 0; } 8% { opacity: 1; } 85% { opacity: 1; } 100% { opacity: 0; } }
 [data-testid="stPopoverBody"]:has(.st-key-chat_panel) { width: min(420px, calc(100vw - 32px)); }
 
 /* Телефон */
@@ -130,7 +141,8 @@ h1 { padding-top: 0.2rem; }
   [data-testid="stMetricValue"] { font-size: 1.5rem !important; }
   .st-key-brief { padding: 12px 14px 6px; }
   .st-key-chat_fab { right: 16px; bottom: 16px; }
-  .st-key-chat_fab button { width: 52px; height: 52px; }
+  .st-key-chat_fab button { width: 52px; height: 52px; background-size: 28px; }
+  .st-key-chat_fab::before, .st-key-chat_fab::after { right: 62px; font-size: 12px; }
 }
 </style>
 """
@@ -138,6 +150,38 @@ h1 { padding-top: 0.2rem; }
 
 def inject_css() -> None:
     st.html(CSS)
+
+
+GITHUB_URL = "https://github.com/BAITC-Hacks/hack-418ae9f6-steppe-overflow"
+
+
+def status_block() -> None:
+    """Статус системы в боковой панели: модель, данные, режим агента, сборка, ссылка на код."""
+    model = load_model()
+    llm = av.llm_configured()
+    import os
+
+    agent = (f'<span style="color:#0f6e36">● LLM включён</span> · {os.environ.get("OPENAI_MODEL", "gpt-5.6-terra")}'
+             if llm else '<span style="color:#8a5a00">● режим правил</span> (без ключа OpenAI)')
+    rev_file = ROOT / "REVISION"
+    rev = rev_file.read_text().strip() if rev_file.exists() else "локальная"
+    trained = pd.Timestamp(model.meta["trained_until_utc"]) + pd.Timedelta(hours=OFFSET)
+    rows = [
+        ("Модель", f"<code>{model.version}</code>"),
+        ("Данные SCADA", f"до {trained:%d.%m.%Y}"),
+        ("Архив погоды", "15.03.2024 – 01.03.2026"),
+        ("AI-агент", agent),
+        ("Сборка", f"<code>{rev}</code>"),
+    ]
+    body = "".join(f'<div style="display:flex;justify-content:space-between;gap:8px;padding:3px 0">'
+                   f'<span style="color:#5b6b66">{k}</span><span style="text-align:right">{v}</span></div>' for k, v in rows)
+    st.html(
+        f'<div style="background:#fff;border:1px solid #d5e0ea;border-radius:12px;padding:10px 12px;'
+        f'font:12.5px Manrope,Roboto,sans-serif;color:#0c2f2b">'
+        f'<div style="font-weight:700;margin-bottom:4px">Статус системы</div>{body}'
+        f'<a href="{GITHUB_URL}" target="_blank" style="display:inline-block;margin-top:6px;color:#12803f;'
+        f'font-weight:700;text-decoration:none">Код на GitHub ↗</a></div>'
+    )
 
 
 # PWA: манифест и service worker отдаёт Caddy (deploy/Caddyfile); здесь — подключение на странице
@@ -247,7 +291,7 @@ def agent_brief(d: pd.Timestamp, m: dict) -> float | None:
         bg, fg = CONFIDENCE_STYLE.get(conf, ("#eef2f0", "#34423e"))
         mode = "LLM-агент" if b["mode"] == "llm" else "агент (правила)"
         st.markdown(
-            f'<div style="margin-bottom:6px">{chip("🤖 " + mode, "#dfe9f2", "#0c4741")}'
+            f'<div style="margin-bottom:6px">{chip("🤖 " + mode, "#ebf1f7", "#0c4741")}'
             f'{chip("уверенность: " + conf, bg, fg)}{leakage_note(m)}</div>',
             unsafe_allow_html=True,
         )
@@ -437,7 +481,7 @@ def chat_panel() -> None:
     with st.container(key="chat_panel"):
         dates = data.test_issue_dates()
         d = pd.Timestamp(st.session_state.get("issue_date", dates[9]))
-        st.markdown("**Спросите о прогнозе**")
+        st.markdown("**AI-помощник**")
         st.caption(f"Выпуск {fmt_day(d)}, 14:00 — прогноз на {fmt_day(d + pd.Timedelta(days=1))} "
                    f"и {fmt_day(d + pd.Timedelta(days=2))}. Дату можно сменить на любой странице.")
         run = load_agent_run(d)
@@ -690,5 +734,6 @@ inject_css()
 chat_widget()
 with st.sidebar:
     st.caption("Agentic AI прогноз выработки ВЭС · Steppe Overflow")
+    status_block()
     st.html(PWA_HTML, unsafe_allow_javascript=True)
 st.navigation(pages).run()

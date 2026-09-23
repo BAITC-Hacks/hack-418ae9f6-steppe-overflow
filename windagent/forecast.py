@@ -10,6 +10,7 @@ from __future__ import annotations
 import gzip
 import json
 import pickle
+from functools import lru_cache
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -93,6 +94,12 @@ def save_model(model: ProductionModel, path: str | Path = MODEL_PATH) -> None:
 
 def load_model(path: str | Path = MODEL_PATH) -> ProductionModel:
     p = resolve(path)
+    return _load_model_cached(str(p), p.stat().st_mtime if p.exists() else 0.0)
+
+
+@lru_cache(maxsize=2)
+def _load_model_cached(path: str, mtime: float) -> ProductionModel:
+    p = Path(path)
     if not p.exists():
         raise FileNotFoundError(f"нет обученной модели {p}; запустите: windagent train")
     with gzip.open(p, "rb") as f:
