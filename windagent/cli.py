@@ -81,6 +81,11 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
     out = resolve("artifacts/backtest/backtest.parquet")
     out.parent.mkdir(parents=True, exist_ok=True)
     preds.to_parquet(out, index=False)
+    # Компактная выборка для веб-интерфейса: ВЭС, основная модель и две опорные
+    keep = ["period", "model", "issue_date", "target_time_utc", "target_time_local", "horizon_h", "lead_day",
+            "p_farm", "p_farm_pred"]
+    compact = preds[preds["model"].isin(["ensemble", "phys_ifs", "clim"])][keep]
+    compact.to_parquet(resolve("artifacts/reports/backtest_preds.parquet"), index=False)
     md = resolve("artifacts/reports/backtest.md")
     md.parent.mkdir(parents=True, exist_ok=True)
     md.write_text(backtest.markdown_summary(preds, "Результаты бэктеста"), encoding="utf-8")

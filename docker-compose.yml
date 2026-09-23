@@ -1,0 +1,34 @@
+# Продакшен на сервере: приложение + Caddy (HTTPS с автоматическим сертификатом Let's Encrypt).
+#   docker compose up -d --build
+# Домен задаётся переменной DOMAIN (по умолчанию steppewind.energy).
+services:
+  app:
+    build: .
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      STREAMLIT_CLIENT_SHOW_ERROR_DETAILS: "false"
+    expose:
+      - "8501"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      DOMAIN: ${DOMAIN:-steppewind.energy}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  caddy_data:
+  caddy_config:
