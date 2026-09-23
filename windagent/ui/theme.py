@@ -23,7 +23,8 @@ FONT = 'Manrope, Roboto, system-ui, -apple-system, "Segoe UI", sans-serif'
 # Данные
 FORECAST = "#1a9e4b"                 # прогноз ВЭС — зелёный
 FACT = "#4a3aa7"                     # факт SCADA — фиолетовый
-BAND = "rgba(26,158,75,0.13)"        # интервал P10–P90 — зелёная «вуаль»
+BLUE_SURFACE = "#dfe9f2"             # второй цвет бренда: меню, интервал, выпадающие списки
+BAND = "#dfe9f2"                     # интервал P10–P90 и коридор моделей — второй цвет бренда
 D2_SHADE = "rgba(12,71,65,0.035)"    # фон зоны D+2 (прогноз дальше — неопределённее)
 
 NWP_COLORS = {"ifs": "#1a9e4b", "gfs": "#2a78d6", "ifs025": "#eda100", "icon": "#e87ba4"}

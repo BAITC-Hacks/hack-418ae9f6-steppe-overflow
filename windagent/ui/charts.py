@@ -70,25 +70,37 @@ def forecast_chart(f: pd.DataFrame, fact: pd.Series | None = None, show_turbines
     return fig
 
 
-def weather_chart(w: pd.DataFrame) -> go.Figure:
-    """Прогноз ветра на 100 м от каждой погодной модели. Разброс между моделями = неопределённость."""
+def weather_chart(w: pd.DataFrame, show_all: bool = False) -> go.Figure:
+    """Ветер на 100 м: коридор «минимум–максимум» по четырём моделям и линия главной модели ECMWF.
+
+    Ширина коридора — насколько модели расходятся (неопределённость). show_all — показать все модели.
+    """
     fig = go.Figure()
     _day_zones(fig, w)
-    for ws, label in ((3, "начало выработки ≈ 3 м/с"), (12, "номинал ≈ 12 м/с")):
-        fig.add_hline(y=ws, line_width=1, line_color=theme.AXIS, layer="below")
-        fig.add_annotation(x=0, xref="paper", y=ws, text=label, showarrow=False, xanchor="left", yanchor="bottom",
-                           xshift=4, bgcolor="rgba(255,255,255,0.8)", font=dict(size=11, color=theme.MUTED))
+    x = w["target_time_local"]
+    cols = [f"{s}__wind_speed_100m" for s in theme.NWP_ORDER if f"{s}__wind_speed_100m" in w]
+    ens = w[cols]
+    fig.add_trace(go.Scatter(x=x, y=ens.max(axis=1), line=dict(width=0), hoverinfo="skip", showlegend=False))
+    fig.add_trace(go.Scatter(x=x, y=ens.min(axis=1), line=dict(width=0), fill="tonexty", fillcolor=theme.BAND,
+                             name="Коридор моделей (мин–макс)", customdata=ens.max(axis=1),
+                             hovertemplate="коридор %{y:.1f}–%{customdata:.1f} м/с<extra></extra>"))
     for src in theme.NWP_ORDER:
         col = f"{src}__wind_speed_100m"
-        if col in w:
-            main = src == "ifs"
-            fig.add_trace(go.Scatter(
-                x=w["target_time_local"], y=w[col], name=theme.NWP_NAMES[src],
-                line=dict(color=theme.NWP_COLORS[src], width=2.8 if main else 1.5, shape="spline", smoothing=0.4),
-                opacity=1 if main else 0.9,
-                hovertemplate=f"{theme.NWP_NAMES[src]}: <b>%{{y:.1f}} м/с</b><extra></extra>",
-            ))
-    theme.style(fig, height=400, xaxis=TIME_AXIS, yaxis=dict(rangemode="tozero", title="ветер на 100 м, м/с"))
+        if col not in w or (src != "ifs" and not show_all):
+            continue
+        main = src == "ifs"
+        fig.add_trace(go.Scatter(
+            x=x, y=w[col], name=theme.NWP_NAMES[src],
+            line=dict(color=theme.NWP_COLORS[src], width=2.8 if main else 1.4, shape="spline", smoothing=0.4),
+            hovertemplate=f"{theme.NWP_NAMES[src]}: <b>%{{y:.1f}} м/с</b><extra></extra>",
+        ))
+    # Опорные уровни — подписи справа, за областью графика, чтобы их не перекрывали линии
+    for ws, label in ((3, "старт выработки"), (12, "номинал")):
+        fig.add_hline(y=ws, line_width=1, line_color=theme.AXIS, layer="below")
+        fig.add_annotation(x=1, xref="paper", y=ws, text=f"{label}<br>≈ {ws} м/с", showarrow=False, xanchor="left",
+                           align="left", xshift=6, font=dict(size=11, color=theme.MUTED))
+    theme.style(fig, height=400, xaxis=TIME_AXIS, yaxis=dict(rangemode="tozero", title="ветер на 100 м, м/с"),
+                margin=dict(l=12, r=92, t=48, b=12))
     return fig
 
 
@@ -173,4 +185,45 @@ def daily_mae_chart(daily: pd.Series) -> go.Figure:
     ))
     theme.style(fig, height=280, hovermode="closest", bargap=0.35, showlegend=False,
                 xaxis=dict(tickformat="%d.%m"), yaxis=dict(rangemode="tozero", title="MAE за сутки"))
+    return fig
+
+
+def forecast_vs_fact_chart(p: pd.DataFrame) -> go.Figure:
+    """Каждая точка — час: прогноз основной модели против факта. Диагональ — идеальный прогноз."""
+    d = p[p["model"] == "ensemble"].dropna(subset=["p_farm", "p_farm_pred"])
+    fig = go.Figure()
+    fig.add_trace(go.Scatter(x=[0, 1], y=[0, 1], mode="lines", line=dict(color=theme.AXIS, width=1.5),
+                             name="идеальный прогноз", hoverinfo="skip"))
+    fig.add_trace(go.Scatter(
+        x=d["p_farm"], y=d["p_farm_pred"], mode="markers", name="час прогноза",
+        marker=dict(size=5, color=theme.FORECAST, opacity=0.22, line=dict(width=0)),
+        hovertemplate="факт %{x:.0%} → прогноз %{y:.0%}<extra></extra>",
+    ))
+    # Средний прогноз для каждого уровня факта — видно, где модель систематически ошибается
+    bins = pd.cut(d["p_farm"], bins=[i / 10 for i in range(11)], include_lowest=True)
+    mean = d.groupby(bins, observed=True).agg(x=("p_farm", "mean"), y=("p_farm_pred", "mean"))
+    fig.add_trace(go.Scatter(x=mean["x"], y=mean["y"], mode="lines+markers", name="средний прогноз",
+                             line=dict(color=theme.BRAND_DARK, width=2.4),
+                             marker=dict(size=7, color=theme.BRAND_DARK, line=dict(width=2, color=theme.SURFACE)),
+                             hovertemplate="при факте ≈ %{x:.0%} прогноз в среднем %{y:.0%}<extra></extra>"))
+    theme.style(fig, height=420, hovermode="closest",
+                xaxis=dict(range=[0, 1], tickformat=".0%", title="факт, % номинала", showgrid=True),
+                yaxis=dict(range=[0, 1], tickformat=".0%", title="прогноз, % номинала", scaleanchor="x"))
+    return fig
+
+
+def error_hist_chart(p: pd.DataFrame) -> go.Figure:
+    """Распределение ошибок основной модели (прогноз − факт) по всем часам бэктеста."""
+    d = p[p["model"] == "ensemble"].dropna(subset=["p_farm", "p_farm_pred"])
+    err = d["p_farm_pred"] - d["p_farm"]
+    fig = go.Figure(go.Histogram(x=err, xbins=dict(start=-1, end=1, size=0.05), name="часы",
+                                 marker=dict(color=theme.FORECAST, line=dict(width=1, color=theme.SURFACE)),
+                                 hovertemplate="ошибка %{x}: <b>%{y}</b> ч<extra></extra>"))
+    fig.add_vline(x=0, line_width=1.5, line_color=theme.BRAND_DARK)
+    share = float((err.abs() <= 0.1).mean())
+    fig.add_annotation(x=0, y=1, yref="paper", yanchor="bottom", text=f"{share:.0%} часов — ошибка не больше 10 п.п.",
+                       showarrow=False, font=dict(size=12, color=theme.INK))
+    theme.style(fig, height=320, hovermode="closest", bargap=0.05, showlegend=False,
+                xaxis=dict(tickformat="+.0%", title="ошибка прогноза (прогноз − факт)", range=[-1, 1]),
+                yaxis=dict(title="часов"))
     return fig

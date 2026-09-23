@@ -36,7 +36,9 @@ def test_charts_build():
     names = [t.name for t in fig.data]
     assert "Прогноз ВЭС" in names and "Факт SCADA" in names and "Интервал P10–P90" in names
     w = data.weather_for_issue(f["issue_date"].iloc[0])
-    assert len(charts.weather_chart(w).data) == 4
+    assert len(charts.weather_chart(w).data) == 3  # коридор (2 границы) + ECMWF
+    assert len(charts.weather_chart(w, show_all=True).data) == 6
+    assert len(charts.forecast_vs_fact_chart(data.backtest_preds()).data) == 3
     bt = data.backtest_preds()
     assert len(charts.error_by_horizon_chart(bt).data) == 3
 

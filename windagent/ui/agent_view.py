@@ -176,3 +176,128 @@ def take_quota(kind: str, client_id: str, path: Path | None = None) -> tuple[boo
         bucket["ip"][client_id] = used_ip + 1
         path.write_text(json.dumps(data))
         return True, f"осталось {lim['per_ip'] - used_ip - 1} на сегодня"
+
+
+# --- Брифинг агента для главной страницы -------------------------------------------------------------
+
+
+def run_brief(run: dict) -> dict:
+    """Главное из журнала: объяснение v1 (на момент выпуска), уверенность, отличие от нормы, ревизия."""
+    analyses = [s["result"] for s in run["steps"] if s["tool"] == "analyze_forecast" and s.get("ok")]
+    first = analyses[0] if analyses else {}
+    brief = {
+        "explanation": run["versions"][0]["explanation"],
+        "confidence": first.get("confidence"),
+        "vs_climatology": first.get("vs_climatology"),
+        "mode": run["mode"],
+        "revision": None,
+    }
+    if len(run["versions"]) > 1:
+        cmp = next((s["result"] for s in reversed(run["steps"]) if s["tool"] == "compare_with_published" and s.get("ok")), {})
+        v2 = run["versions"][-1]
+        brief["revision"] = {"version": v2["version"], "as_of_local": v2["as_of_local"],
+                             "mean_abs_change": cmp.get("mean_abs_change"), "max_abs_change": cmp.get("max_abs_change")}
+    return brief
+
+
+# --- Схема цикла агента ---------------------------------------------------------------------------------
+
+_STAGE = {
+    "fetch_weather": "Погода",
+    "validate_weather": "Проверка",
+    "run_forecast": "Модель",
+    "analyze_forecast": "Анализ",
+    "advance_to_next_update": "Новый прогон",
+    "compare_with_published": "Сравнение",
+}
+
+
+def _short(step: dict) -> str:
+    tool, r = step["tool"], step.get("result") or {}
+    if not step.get("ok", True):
+        return "ошибка"
+    if tool == "fetch_weather":
+        return f"{sum(v >= 0.99 for v in r['coverage_ws100'].values())} из {len(r['coverage_ws100'])} моделей"
+    if tool == "validate_weather":
+        bad = r["suspicious_sources"]
+        return f"согласие {r['agreement']}" + (f", исключить {', '.join(bad)}" if bad else "")
+    if tool == "run_forecast":
+        return f"завтра {r['mean_p_farm_d1']:.0%}" + (f", без {', '.join(r['excluded_sources'])}" if r["excluded_sources"] else "")
+    if tool == "analyze_forecast":
+        return f"уверенность {r['confidence']}"
+    if tool == "publish_forecast":
+        return f"данные на {r['as_of_local'][-5:]}"
+    if tool == "advance_to_next_update":
+        return (f"ECMWF {pd.Timestamp(r['run_utc']):%H}Z → {r['new_as_of_local'][-5:]}" if r.get("new_run_available")
+                else "новых нет")
+    if tool == "compare_with_published":
+        return f"Δ {r['mean_abs_change'] * 100:.0f} п.п. → {'ревизия' if r['significant'] else 'без ревизии'}"
+    return ""
+
+
+def _offset() -> int:
+    from windagent.config import load_settings
+
+    return load_settings()["scada"]["utc_offset_hours"]
+
+
+def pipeline_stages(steps: list[dict]) -> list[dict]:
+    """Шаги журнала → этапы схемы, сгруппированные по циклам (выпуск и пересчёт)."""
+    stages, phase = [], 1
+    for s in steps:
+        tool = s["tool"]
+        if tool == "check_available_runs":
+            continue
+        if tool == "decision":
+            if stages:
+                stages[-1]["note"] = s.get("reason", "")
+            continue
+        if tool == "advance_to_next_update":
+            phase = 2
+        if tool == "publish_forecast":
+            v = (s.get("result") or {}).get("version", 1)
+            title = "Публикация v1" if v == 1 else f"Ревизия v{v}"
+        else:
+            title = _STAGE.get(tool, tool)
+        stages.append({"phase": phase, "title": title, "detail": _short(s), "ok": s.get("ok", True),
+                       "as_of_local": f"{pd.Timestamp(s['as_of_utc']) + pd.Timedelta(hours=_offset()):%H:%M}",
+                       "tool": tool, "note": ""})
+    return stages
+
+
+def stepper_html(stages: list[dict], running: bool = False) -> str:
+    """HTML-схема цикла агента: по строке на цикл, этапы соединены линией."""
+    rows = []
+    for phase in sorted({s["phase"] for s in stages}):
+        items = [s for s in stages if s["phase"] == phase]
+        label = (f"Выпуск · данные на {items[0]['as_of_local']}" if phase == 1
+                 else f"Пересчёт · данные на {items[-1]['as_of_local']}")
+        nodes = []
+        for i, s in enumerate(items):
+            last = running and s is stages[-1]
+            cls = "sw-node err" if not s["ok"] else ("sw-node run" if last else "sw-node ok")
+            mark = "!" if not s["ok"] else ("…" if last else "✓")
+            nodes.append(
+                f'<div class="{cls}"><div class="sw-dot">{mark}</div>'
+                f'<div class="sw-t">{s["title"]}</div><div class="sw-d">{s["detail"]}</div></div>'
+            )
+        rows.append(f'<div class="sw-row"><div class="sw-label">{label}</div><div class="sw-track">{"".join(nodes)}</div></div>')
+    return STEPPER_CSS + '<div class="sw">' + "".join(rows) + "</div>"
+
+
+STEPPER_CSS = """<style>
+.sw { display: flex; flex-direction: column; gap: 14px; margin: 4px 0 8px; font-family: Manrope, Roboto, sans-serif; }
+.sw-label { font-size: 12px; color: #5b6b66; margin-bottom: 6px; font-weight: 600; letter-spacing: .02em; }
+.sw-track { display: flex; flex-wrap: wrap; gap: 0; }
+.sw-node { position: relative; flex: 1 1 110px; min-width: 110px; padding: 0 8px 4px 0; }
+.sw-node::before { content: ""; position: absolute; top: 14px; left: 30px; right: 0; height: 2px; background: #c9d8cf; }
+.sw-node:last-child::before { display: none; }
+.sw-dot { position: relative; z-index: 1; width: 30px; height: 30px; border-radius: 50%; display: flex;
+  align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: #fff; background: #12803f;
+  box-shadow: 0 0 0 4px #fff; }
+.sw-node.run .sw-dot { background: #dfe9f2; color: #0c4741; animation: swp 1s infinite; }
+.sw-node.err .sw-dot { background: #d03b3b; }
+.sw-t { margin-top: 6px; font-size: 13px; font-weight: 700; color: #0c2f2b; }
+.sw-d { font-size: 12px; color: #5b6b66; line-height: 1.3; }
+@keyframes swp { 50% { opacity: .5; } }
+</style>"""

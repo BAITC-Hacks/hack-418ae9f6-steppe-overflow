@@ -1,8 +1,6 @@
 # Steppe Overflow — Agentic AI прогноз выработки ВЭС
 
-🌐 **https://steppewind.energy**
-
-> 🚧 Проект в разработке. README описывает только то, что уже реализовано и проверено.
+https://steppewind.energy
 
 ## Кратко
 

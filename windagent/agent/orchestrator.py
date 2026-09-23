@@ -38,7 +38,12 @@ SYSTEM_PROMPT = """Ты — AI-агент прогноза выработки в
    validate_weather, run_forecast, analyze_forecast, затем compare_with_published. Публикуй
    ревизию (publish_forecast) только если compare_with_published советует; в объяснении ревизии
    скажи, что изменилось и почему.
-6. В конце дай короткий итог (2–3 предложения): что опубликовано и с какой уверенностью."""
+6. В конце дай короткий итог (2–3 предложения): что опубликовано и с какой уверенностью.
+
+Оформление текстов: мощность — в процентах номинала, округлённо («32 %», а не «0,32»); изменения —
+в процентных пунктах («на 7 п.п.»); время — местное, в формате «13.02 23:00»; скорость ветра — в м/с.
+Не используй обозначения D+1/D+2 и названия полей JSON — пиши «завтра», «послезавтра»; модели
+погоды называй ECMWF, ICON, GFS. Пиши для диспетчера: коротко, по делу, без технических терминов."""
 
 
 # --- Объяснение по шаблону (режим правил и запасной вариант) -------------------------------------
@@ -80,10 +85,12 @@ def template_explanation(state: T.AgentState, validation: dict, analysis: dict, 
 
 
 class Recorder:
-    def __init__(self, state: T.AgentState, log: Callable[[str], None] | None = None):
+    def __init__(self, state: T.AgentState, log: Callable[[str], None] | None = None,
+                 on_step: Callable[[list[dict]], None] | None = None):
         self.state = state
         self.steps: list[dict] = []
         self.log = log or (lambda m: None)
+        self.on_step = on_step or (lambda steps: None)
 
     def call(self, name: str, args: dict | None = None, reason: str = "") -> dict:
         t0 = time.time()
@@ -99,12 +106,14 @@ class Recorder:
         shown = json.dumps(args, ensure_ascii=False) if args else ""
         shown = shown if len(shown) <= 60 else shown[:57] + "…"
         self.log(f"  [{len(self.steps):>2}] {name}{'(' + shown + ')' if shown else ''}{' — ' + reason if reason else ''}")
+        self.on_step(self.steps)
         return result
 
     def note(self, text: str) -> None:
         self.steps.append({"step": len(self.steps) + 1, "tool": "decision", "reason": text, "ok": True,
                            "as_of_utc": str(self.state.as_of)})
         self.log(f"  [{len(self.steps):>2}] решение: {text}")
+        self.on_step(self.steps)
 
 
 # --- Оркестратор на правилах --------------------------------------------------------------------
@@ -167,7 +176,7 @@ def tool_schemas() -> list[dict]:
 
 
 def run_llm(state: T.AgentState, recheck: bool = True, client=None, model: str | None = None,
-            log: Callable[[str], None] | None = None) -> tuple[list[dict], str]:
+            log: Callable[[str], None] | None = None, on_step=None) -> tuple[list[dict], str]:
     """Агентный цикл: модель OpenAI вызывает инструменты, пока не выпустит прогноз и не даст итог."""
     load_env()
     if client is None:
@@ -175,7 +184,7 @@ def run_llm(state: T.AgentState, recheck: bool = True, client=None, model: str |
 
         client = OpenAI()
     model = model or os.environ.get("OPENAI_MODEL") or "gpt-5.6-terra"
-    rec = Recorder(state, log)
+    rec = Recorder(state, log, on_step)
     task = (f"Выпусти прогноз для даты выпуска {state.issue_date:%Y-%m-%d} "
             f"(момент прогноза {T._local(state.as_of, state.offset)} местного времени). "
             f"Пересчёт при появлении новых данных: {'разрешён' if recheck else 'не нужен'}.")
@@ -214,7 +223,7 @@ def llm_available() -> bool:
 
 
 def run_agent(issue_date, model, mode: str = "auto", recheck: bool = True, settings: dict | None = None,
-              log: Callable[[str], None] | None = None, client=None, out_dir=None) -> dict:
+              log: Callable[[str], None] | None = None, client=None, out_dir=None, on_step=None) -> dict:
     """Полный запуск агента на одну дату выпуска. mode: auto | rules | llm."""
     extra = {k: v for k, v in (("settings", settings), ("out_dir", out_dir)) if v is not None}
     state = T.AgentState(issue_date=issue_date, model=model, **extra)
@@ -222,17 +231,17 @@ def run_agent(issue_date, model, mode: str = "auto", recheck: bool = True, setti
     used = "rules"
     if use_llm:
         try:
-            steps, summary = run_llm(state, recheck=recheck, client=client, log=log)
+            steps, summary = run_llm(state, recheck=recheck, client=client, log=log, on_step=on_step)
             used = "llm"
         except Exception as e:  # сеть, ключ, лимиты — прогноз всё равно должен выйти
             (log or print)(f"  LLM недоступна ({type(e).__name__}: {e}); продолжаю по правилам")
             state = T.AgentState(issue_date=issue_date, model=model, **extra)
-            rec = Recorder(state, log)
+            rec = Recorder(state, log, on_step)
             rec.note(f"LLM недоступна ({type(e).__name__}) — работаю по правилам")
             steps, summary = run_rules(state, recheck=recheck, rec=rec)
             used = "rules (fallback)"
     else:
-        steps, summary = run_rules(state, recheck=recheck, rec=Recorder(state, log))
+        steps, summary = run_rules(state, recheck=recheck, rec=Recorder(state, log, on_step))
     path = T.save_run(state, steps, used, summary)
     return {"issue_date": f"{state.issue_date:%Y-%m-%d}", "mode": used, "versions": len(state.versions),
             "summary": summary, "explanation": state.versions[-1]["explanation"], "run_file": str(path),
