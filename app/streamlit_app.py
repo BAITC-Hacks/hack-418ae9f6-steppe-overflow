@@ -467,7 +467,7 @@ def page_weather():
                "как в реальной работе диспетчера.")
     d = issue_picker("issue_weather")
     w = load_weather(f"{d:%Y-%m-%d}")
-    show_all = st.toggle("Показать все погодные модели", value=False,
+    show_all = st.toggle("Показать все погодные модели", value=True,
                          help="ECMWF, GFS, ECMWF 0.25° и ICON по отдельности")
     plot(charts.weather_chart(w, show_all=show_all))
     spread = float(w[[c for c in w.columns if c.endswith("__wind_speed_100m")]].std(axis=1).mean())
