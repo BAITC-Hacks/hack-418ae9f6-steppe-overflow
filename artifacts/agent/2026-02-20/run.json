@@ -1,0 +1,516 @@
+{
+ "issue_date": "2026-02-20",
+ "mode": "rules",
+ "model_version": "ensemble-v1-20260131",
+ "created_unix": 1790158409,
+ "summary": "Опубликовано версий: 2. Итоговая версия v2 (данные на 20.02 19:00), уверенность низкая.",
+ "steps": [
+  {
+   "step": 1,
+   "tool": "check_available_runs",
+   "args": {},
+   "reason": "какие прогнозы погоды уже опубликованы",
+   "ok": true,
+   "as_of_utc": "2026-02-20 08:00:00",
+   "seconds": 0.0,
+   "result": {
+    "as_of_utc": "2026-02-20 08:00:00",
+    "as_of_local": "20.02 14:00",
+    "runs": [
+     {
+      "source": "ifs",
+      "model": "ecmwf_ifs",
+      "latest_run_utc": "2026-02-20 00:00:00",
+      "published_utc": "2026-02-20 07:00:00",
+      "age_h": 8.0
+     },
+     {
+      "source": "ifs025",
+      "model": "ecmwf_ifs025",
+      "latest_run_utc": "2026-02-20 00:00:00",
+      "published_utc": "2026-02-20 07:00:00",
+      "age_h": 8.0
+     },
+     {
+      "source": "gfs",
+      "model": "gfs_seamless",
+      "latest_run_utc": "2026-02-20 00:00:00",
+      "published_utc": "2026-02-20 05:00:00",
+      "age_h": 8.0
+     },
+     {
+      "source": "icon",
+      "model": "icon_seamless",
+      "latest_run_utc": "2026-02-20 00:00:00",
+      "published_utc": "2026-02-20 04:00:00",
+      "age_h": 8.0
+     }
+    ]
+   }
+  },
+  {
+   "step": 2,
+   "tool": "fetch_weather",
+   "args": {},
+   "reason": "собираем прогнозы погоды на 48 ч",
+   "ok": true,
+   "as_of_utc": "2026-02-20 08:00:00",
+   "seconds": 0.04,
+   "result": {
+    "hours": 48,
+    "coverage_ws100": {
+     "ifs": 1.0,
+     "ifs025": 1.0,
+     "gfs": 1.0,
+     "icon": 1.0
+    },
+    "ifs_runs_used_utc": [
+     "2026-02-20 00:00:00"
+    ],
+    "all_published_before_as_of": true
+   }
+  },
+  {
+   "step": 3,
+   "tool": "validate_weather",
+   "args": {},
+   "reason": "проверяем качество и согласие моделей",
+   "ok": true,
+   "as_of_utc": "2026-02-20 08:00:00",
+   "seconds": 0.0,
+   "result": {
+    "sources": {
+     "ifs": {
+      "coverage": 1.0,
+      "mean_ws100": 6.3,
+      "deviation_from_median_ms": 1.92,
+      "issues": []
+     },
+     "ifs025": {
+      "coverage": 1.0,
+      "mean_ws100": 8.17,
+      "deviation_from_median_ms": 1.05,
+      "issues": []
+     },
+     "gfs": {
+      "coverage": 1.0,
+      "mean_ws100": 9.13,
+      "deviation_from_median_ms": 2.52,
+      "issues": []
+     },
+     "icon": {
+      "coverage": 1.0,
+      "mean_ws100": 7.77,
+      "deviation_from_median_ms": 2.03,
+      "issues": []
+     }
+    },
+    "suspicious_sources": [],
+    "ensemble_spread_ms": 2.58,
+    "agreement": "умеренное",
+    "recommendation": "все источники пригодны"
+   }
+  },
+  {
+   "step": 4,
+   "tool": "run_forecast",
+   "args": {
+    "exclude_sources": []
+   },
+   "reason": "запуск модели",
+   "ok": true,
+   "as_of_utc": "2026-02-20 08:00:00",
+   "seconds": 0.25,
+   "result": {
+    "excluded_sources": [],
+    "mean_p_farm_d1": 0.532,
+    "mean_p_farm_d2": 0.385,
+    "equivalent_full_load_hours_d1": 12.8,
+    "mean_interval_width": 0.638
+   }
+  },
+  {
+   "step": 5,
+   "tool": "analyze_forecast",
+   "args": {},
+   "reason": "проверка правдоподобия результата",
+   "ok": true,
+   "as_of_utc": "2026-02-20 08:00:00",
+   "seconds": 0.2,
+   "result": {
+    "flags": [],
+    "confidence": "низкая",
+    "mean_p_farm_d1": 0.532,
+    "peak_d1": {
+     "value": 0.902,
+     "time_local": "21.02 13:00"
+    },
+    "calm_hours_d1": 0,
+    "high_hours_d1": 4,
+    "climatology_mean": 0.395,
+    "vs_climatology": 0.063,
+    "mean_interval_width": 0.638,
+    "ensemble_spread_ms": 2.58,
+    "change_vs_previous_issue": {
+     "hours_compared": 24,
+     "mean_abs_change": 0.124,
+     "mean_shift": -0.045
+    },
+    "mean_wind_ifs_d1_ms": 7.4
+   }
+  },
+  {
+   "step": 6,
+   "tool": "publish_forecast",
+   "args": {
+    "explanation": "Прогноз на 21.02: средняя мощность ВЭС 53% номинала (ветер ECMWF на 100 м в среднем 7.4 м/с), пик 90% около 13:00. Работа близко к номиналу (≥80 %) ожидается 4 ч. Согласие погодных моделей умеренное (разброс 2.58 м/с), уверенность прогноза низкая. По сравнению с прошлым выпуском прогноз на пересекающиеся часы сдвинулся в среднем на -4%."
+   },
+   "reason": "публикуем первую версию прогноза",
+   "ok": true,
+   "as_of_utc": "2026-02-20 08:00:00",
+   "seconds": 0.0,
+   "result": {
+    "version": 1,
+    "file": "artifacts/agent/2026-02-20/forecast_v1.csv",
+    "as_of_local": "20.02 14:00"
+   }
+  },
+  {
+   "step": 7,
+   "tool": "advance_to_next_update",
+   "args": {},
+   "reason": "проверяем, не вышел ли новый прогон погоды",
+   "ok": true,
+   "as_of_utc": "2026-02-20 13:00:00",
+   "seconds": 0.0,
+   "result": {
+    "new_run_available": true,
+    "model": "ecmwf_ifs",
+    "run_utc": "2026-02-20 06:00:00",
+    "previous_as_of_local": "20.02 14:00",
+    "new_as_of_local": "20.02 19:00",
+    "new_as_of_utc": "2026-02-20 13:00:00"
+   }
+  },
+  {
+   "step": 8,
+   "tool": "fetch_weather",
+   "args": {},
+   "reason": "собираем прогнозы погоды на 48 ч",
+   "ok": true,
+   "as_of_utc": "2026-02-20 13:00:00",
+   "seconds": 0.05,
+   "result": {
+    "hours": 48,
+    "coverage_ws100": {
+     "ifs": 1.0,
+     "ifs025": 1.0,
+     "gfs": 1.0,
+     "icon": 1.0
+    },
+    "ifs_runs_used_utc": [
+     "2026-02-20 06:00:00"
+    ],
+    "all_published_before_as_of": true
+   }
+  },
+  {
+   "step": 9,
+   "tool": "validate_weather",
+   "args": {},
+   "reason": "проверяем качество и согласие моделей",
+   "ok": true,
+   "as_of_utc": "2026-02-20 13:00:00",
+   "seconds": 0.0,
+   "result": {
+    "sources": {
+     "ifs": {
+      "coverage": 1.0,
+      "mean_ws100": 6.24,
+      "deviation_from_median_ms": 1.91,
+      "issues": []
+     },
+     "ifs025": {
+      "coverage": 1.0,
+      "mean_ws100": 8.51,
+      "deviation_from_median_ms": 0.92,
+      "issues": []
+     },
+     "gfs": {
+      "coverage": 1.0,
+      "mean_ws100": 9.52,
+      "deviation_from_median_ms": 2.81,
+      "issues": []
+     },
+     "icon": {
+      "coverage": 1.0,
+      "mean_ws100": 8.33,
+      "deviation_from_median_ms": 1.8,
+      "issues": []
+     }
+    },
+    "suspicious_sources": [],
+    "ensemble_spread_ms": 2.61,
+    "agreement": "умеренное",
+    "recommendation": "все источники пригодны"
+   }
+  },
+  {
+   "step": 10,
+   "tool": "run_forecast",
+   "args": {
+    "exclude_sources": []
+   },
+   "reason": "запуск модели",
+   "ok": true,
+   "as_of_utc": "2026-02-20 13:00:00",
+   "seconds": 0.27,
+   "result": {
+    "excluded_sources": [],
+    "mean_p_farm_d1": 0.548,
+    "mean_p_farm_d2": 0.396,
+    "equivalent_full_load_hours_d1": 13.2,
+    "mean_interval_width": 0.599
+   }
+  },
+  {
+   "step": 11,
+   "tool": "analyze_forecast",
+   "args": {},
+   "reason": "проверка правдоподобия результата",
+   "ok": true,
+   "as_of_utc": "2026-02-20 13:00:00",
+   "seconds": 0.19,
+   "result": {
+    "flags": [],
+    "confidence": "низкая",
+    "mean_p_farm_d1": 0.548,
+    "peak_d1": {
+     "value": 0.925,
+     "time_local": "21.02 13:00"
+    },
+    "calm_hours_d1": 0,
+    "high_hours_d1": 4,
+    "climatology_mean": 0.395,
+    "vs_climatology": 0.077,
+    "mean_interval_width": 0.599,
+    "ensemble_spread_ms": 2.61,
+    "change_vs_previous_issue": {
+     "hours_compared": 24,
+     "mean_abs_change": 0.133,
+     "mean_shift": -0.029
+    },
+    "mean_wind_ifs_d1_ms": 7.4
+   }
+  },
+  {
+   "step": 12,
+   "tool": "compare_with_published",
+   "args": {},
+   "reason": "сравниваем с опубликованной версией",
+   "ok": true,
+   "as_of_utc": "2026-02-20 13:00:00",
+   "seconds": 0.0,
+   "result": {
+    "has_published": true,
+    "compared_with_version": 1,
+    "mean_abs_change": 0.043,
+    "max_abs_change": 0.201,
+    "max_change_at_local": "21.02 18:00",
+    "mean_shift": 0.014,
+    "significant": true,
+    "recommendation": "опубликовать ревизию"
+   }
+  },
+  {
+   "step": 13,
+   "tool": "publish_forecast",
+   "args": {
+    "explanation": "Ревизия после выхода нового прогона ECMWF (20.02 19:00): прогноз изменился в среднем на 4%, максимум на 20% (21.02 18:00). Прогноз на 21.02: средняя мощность ВЭС 55% номинала (ветер ECMWF на 100 м в среднем 7.4 м/с), пик 92% около 13:00. Работа близко к номиналу (≥80 %) ожидается 4 ч. Согласие погодных моделей умеренное (разброс 2.61 м/с), уверенность прогноза низкая. По сравнению с прошлым выпуском прогноз на пересекающиеся часы сдвинулся в среднем на -3%."
+   },
+   "reason": "изменение существенное — публикуем ревизию",
+   "ok": true,
+   "as_of_utc": "2026-02-20 13:00:00",
+   "seconds": 0.0,
+   "result": {
+    "version": 2,
+    "file": "artifacts/agent/2026-02-20/forecast_v2.csv",
+    "as_of_local": "20.02 19:00"
+   }
+  }
+ ],
+ "versions": [
+  {
+   "version": 1,
+   "as_of_utc": "2026-02-20 08:00:00",
+   "as_of_local": "20.02 14:00",
+   "excluded_sources": [],
+   "explanation": "Прогноз на 21.02: средняя мощность ВЭС 53% номинала (ветер ECMWF на 100 м в среднем 7.4 м/с), пик 90% около 13:00. Работа близко к номиналу (≥80 %) ожидается 4 ч. Согласие погодных моделей умеренное (разброс 2.58 м/с), уверенность прогноза низкая. По сравнению с прошлым выпуском прогноз на пересекающиеся часы сдвинулся в среднем на -4%.",
+   "file": "artifacts/agent/2026-02-20/forecast_v1.csv",
+   "sources": [
+    {
+     "source": "single",
+     "model": "ecmwf_ifs",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 07:00:00",
+     "run_time": "2026-02-20 00:00:00"
+    },
+    {
+     "source": "single",
+     "model": "ecmwf_ifs",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 07:00:00",
+     "run_time": "2026-02-20 00:00:00"
+    },
+    {
+     "source": "single",
+     "model": "ecmwf_ifs",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 01:00:00",
+     "run_time": "2026-02-19 18:00:00"
+    },
+    {
+     "source": "single",
+     "model": "ecmwf_ifs",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 0.875,
+     "max_published_at": "2026-02-19 19:00:00",
+     "run_time": "2026-02-19 12:00:00"
+    },
+    {
+     "source": "single",
+     "model": "ecmwf_ifs",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 0.75,
+     "max_published_at": "2026-02-19 13:00:00",
+     "run_time": "2026-02-19 06:00:00"
+    },
+    {
+     "source": "previous",
+     "model": "ecmwf_ifs025",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 07:00:00",
+     "days_used": {
+      "2": 24,
+      "1": 12,
+      "3": 12
+     }
+    },
+    {
+     "source": "previous",
+     "model": "gfs_seamless",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 05:00:00",
+     "days_used": {
+      "2": 24,
+      "1": 12,
+      "3": 12
+     }
+    },
+    {
+     "source": "previous",
+     "model": "icon_seamless",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 04:00:00",
+     "days_used": {
+      "2": 24,
+      "1": 12,
+      "3": 12
+     }
+    }
+   ]
+  },
+  {
+   "version": 2,
+   "as_of_utc": "2026-02-20 13:00:00",
+   "as_of_local": "20.02 19:00",
+   "excluded_sources": [],
+   "explanation": "Ревизия после выхода нового прогона ECMWF (20.02 19:00): прогноз изменился в среднем на 4%, максимум на 20% (21.02 18:00). Прогноз на 21.02: средняя мощность ВЭС 55% номинала (ветер ECMWF на 100 м в среднем 7.4 м/с), пик 92% около 13:00. Работа близко к номиналу (≥80 %) ожидается 4 ч. Согласие погодных моделей умеренное (разброс 2.61 м/с), уверенность прогноза низкая. По сравнению с прошлым выпуском прогноз на пересекающиеся часы сдвинулся в среднем на -3%.",
+   "file": "artifacts/agent/2026-02-20/forecast_v2.csv",
+   "sources": [
+    {
+     "source": "single",
+     "model": "ecmwf_ifs",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 13:00:00",
+     "run_time": "2026-02-20 06:00:00"
+    },
+    {
+     "source": "single",
+     "model": "ecmwf_ifs",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 13:00:00",
+     "run_time": "2026-02-20 06:00:00"
+    },
+    {
+     "source": "single",
+     "model": "ecmwf_ifs",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 07:00:00",
+     "run_time": "2026-02-20 00:00:00"
+    },
+    {
+     "source": "single",
+     "model": "ecmwf_ifs",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 01:00:00",
+     "run_time": "2026-02-19 18:00:00"
+    },
+    {
+     "source": "single",
+     "model": "ecmwf_ifs",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 0.875,
+     "max_published_at": "2026-02-19 19:00:00",
+     "run_time": "2026-02-19 12:00:00"
+    },
+    {
+     "source": "previous",
+     "model": "ecmwf_ifs025",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 13:00:00",
+     "days_used": {
+      "2": 24,
+      "1": 18,
+      "3": 6
+     }
+    },
+    {
+     "source": "previous",
+     "model": "gfs_seamless",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 11:00:00",
+     "days_used": {
+      "2": 24,
+      "1": 18,
+      "3": 6
+     }
+    },
+    {
+     "source": "previous",
+     "model": "icon_seamless",
+     "targets": "2026-02-20 18:00:00 … 2026-02-22 17:00:00",
+     "coverage": 1.0,
+     "max_published_at": "2026-02-20 10:00:00",
+     "days_used": {
+      "2": 24,
+      "1": 18,
+      "3": 6
+     }
+    }
+   ]
+  }
+ ]
+}

@@ -144,6 +144,28 @@ def _cmd_submission(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_agent(args: argparse.Namespace) -> int:
+    from windagent import forecast, protocol
+    from windagent.agent.orchestrator import run_agent
+    from windagent.config import load_settings
+
+    s = load_settings()
+    model = forecast.load_model()
+    if args.period == "test":
+        dates = protocol.issue_dates(s["forecast"]["test_first_issue"], s["forecast"]["test_last_issue"])
+    else:
+        dates = [args.date or s["forecast"]["test_first_issue"]]
+    quiet = len(dates) > 1
+    for d in dates:
+        print(f"=== Агент: выпуск {d:%Y-%m-%d}" if hasattr(d, "strftime") else f"=== Агент: выпуск {d}")
+        r = run_agent(d, model, mode=args.mode, recheck=not args.no_recheck, settings=s,
+                      log=None if quiet else print)
+        print(f"  режим: {r['mode']}, шагов: {r['steps']}, версий: {r['versions']}")
+        if not quiet:
+            print(f"\nОбъяснение: {r['explanation']}\n\nИтог: {r['summary']}\nЖурнал: {r['run_file']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="windagent",
@@ -182,6 +204,14 @@ def build_parser() -> argparse.ArgumentParser:
     fc = sub.add_parser("forecast", help="Прогноз одного выпуска (48 ч) с манифестом источников")
     fc.add_argument("--date", required=True, help="дата выпуска, напр. 2026-02-10")
     fc.set_defaults(func=_cmd_forecast)
+
+    ag = sub.add_parser("agent", help="AI-агент: полный цикл выпуска прогноза с анализом и пересчётом")
+    ag.add_argument("--date", help="дата выпуска, напр. 2026-02-10 (по умолчанию первая дата теста)")
+    ag.add_argument("--period", choices=["test"], help="все 28 выпусков тестового периода")
+    ag.add_argument("--mode", choices=["auto", "rules", "llm"], default="auto",
+                    help="auto: LLM, если задан OPENAI_API_KEY, иначе правила")
+    ag.add_argument("--no-recheck", action="store_true", help="без пересчёта при выходе нового прогона")
+    ag.set_defaults(func=_cmd_agent)
 
     sub.add_parser("submission", help="Прогноз на весь тестовый период (31.01–27.02.2026)").set_defaults(func=_cmd_submission)
     return p

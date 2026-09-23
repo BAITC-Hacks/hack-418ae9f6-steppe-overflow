@@ -12,3 +12,4 @@ artifacts/*
 !artifacts/submission/
 !artifacts/models/
 !artifacts/reports/
+!artifacts/agent/
