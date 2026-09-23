@@ -32,6 +32,7 @@ class GbmForecaster(Forecaster):
         train_on: str = "raw",
         name: str | None = None,
         targets: tuple[str, ...] = TARGETS,
+        half_life_days: float | None = None,
         **params,
     ):
         """loss: absolute_error (оптимум для MAE) или squared_error (для RMSE).
@@ -39,6 +40,7 @@ class GbmForecaster(Forecaster):
         self.loss = loss
         self.train_on = train_on
         self.targets = targets
+        self.half_life_days = half_life_days
         self.params = {**DEFAULT_PARAMS, **params}
         short = {"absolute_error": "l1", "squared_error": "l2", "quantile": f"q{int(params.get('quantile', 0.5) * 100)}"}
         self.name = name or f"gbm_{short[loss]}_{train_on}"
@@ -63,11 +65,16 @@ class GbmForecaster(Forecaster):
         # Признаки без информации в обучающей выборке (все пропуски или одно значение) не нужны
         self.columns_ = [c for c in feature_columns(F) if F[c].nunique(dropna=True) > 1]
         self.models_ = {}
+        weights = None
+        if self.half_life_days:
+            # Свежие выпуски важнее: вес уменьшается вдвое каждые half_life_days дней
+            age = (train["issue_date"].max() - train["issue_date"]).dt.days.to_numpy()
+            weights = 0.5 ** (age / self.half_life_days)
         for t in self.targets:
             y = self._target(train, t)
             ok = y.notna().to_numpy()
             m = HistGradientBoostingRegressor(loss=self.loss, **self.params)
-            m.fit(F.loc[ok, self.columns_], y[ok])
+            m.fit(F.loc[ok, self.columns_], y[ok], sample_weight=None if weights is None else weights[ok])
             self.models_[t] = m
         return self
 

@@ -42,6 +42,8 @@ def _cmd_weather_download(args: argparse.Namespace) -> int:
     if "previous" in what:
         for m in w["previous_runs"]:
             print(weather.download_previous_runs(m, start, end))
+    if "neighbors" in what:
+        print(weather.download_neighbors(start, end))
     if "era5" in what:
         print(weather.download_era5(args.era5_start, args.era5_end))
     print(weather.status())
@@ -166,6 +168,19 @@ def _cmd_agent(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_live(args: argparse.Namespace) -> int:
+    from windagent import forecast, live
+
+    model = forecast.load_model()
+    if args.watch:
+        live.watch(model, interval_s=args.interval)
+        return 0
+    r = live.run_live(model, mode=args.mode)
+    print(f"\nЖивой выпуск {r['issue_date']} (момент прогноза {r['as_of_utc']} UTC, прогон ECMWF {r['ecmwf_run']}, "
+          f"режим {r['mode']})\n{r['explanation']}\nЖурнал: {r['dir']}")
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="windagent",
@@ -184,7 +199,7 @@ def build_parser() -> argparse.ArgumentParser:
     wd = wsub.add_parser("download", help="докачать архив прогнозов в кэш (нужен интернет)")
     wd.add_argument("--start", help="первая дата (по умолчанию из конфига)")
     wd.add_argument("--end", help="последняя дата (по умолчанию из конфига)")
-    wd.add_argument("--what", default="single,previous", help="single,previous,era5")
+    wd.add_argument("--what", default="single,previous", help="single,previous,neighbors,era5")
     wd.add_argument("--workers", type=int, default=4, help="параллельных запросов")
     wd.add_argument("--era5-start", default="2023-03-01")
     wd.add_argument("--era5-end", default="2026-01-31")
@@ -212,6 +227,12 @@ def build_parser() -> argparse.ArgumentParser:
                     help="auto: LLM, если задан OPENAI_API_KEY, иначе правила")
     ag.add_argument("--no-recheck", action="store_true", help="без пересчёта при выходе нового прогона")
     ag.set_defaults(func=_cmd_agent)
+
+    lv = sub.add_parser("live", help="Живой режим: прогноз на настоящее завтра по свежим прогнозам погоды")
+    lv.add_argument("--watch", action="store_true", help="планировщик: пересчёт при выходе нового прогона")
+    lv.add_argument("--interval", type=int, default=900, help="период проверки, с (по умолчанию 15 мин)")
+    lv.add_argument("--mode", choices=["auto", "rules", "llm"], default="auto")
+    lv.set_defaults(func=_cmd_live)
 
     sub.add_parser("submission", help="Прогноз на весь тестовый период (31.01–27.02.2026)").set_defaults(func=_cmd_submission)
     return p

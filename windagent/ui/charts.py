@@ -227,3 +227,64 @@ def error_hist_chart(p: pd.DataFrame) -> go.Figure:
                 xaxis=dict(tickformat="+.0%", title="ошибка прогноза (прогноз − факт)", range=[-1, 1]),
                 yaxis=dict(title="часов"))
     return fig
+
+
+_MONTHS_GEN = ["", "января", "февраля", "марта", "апреля", "мая", "июня", "июля", "августа", "сентября",
+               "октября", "ноября", "декабря"]
+SERIES = {"farm": ("p_farm", "ВЭС (2 турбины)"), "t1": ("p_t1", "Турбина 1"), "t2": ("p_t2", "Турбина 2")}
+
+
+def main_forecast_chart(f: pd.DataFrame, prev: pd.DataFrame | None = None, wind=None, series: str = "farm",
+                        fact: pd.Series | None = None, day_names=("Завтра", "Послезавтра")) -> go.Figure:
+    """Главный график: прогноз (P50), предыдущий прогноз пунктиром, интервал P10–P90, факт (если есть).
+
+    Подсказка при наведении показывает все значения часа и скорость ветра ECMWF на 100 м.
+    """
+    col, label = SERIES[series]
+    x = f["target_time_local"]
+    fig = go.Figure()
+    if series == "farm" and "p_farm_q10" in f:
+        fig.add_trace(go.Scatter(x=x, y=f["p_farm_q90"], line=dict(width=0), hoverinfo="skip", showlegend=False))
+        fig.add_trace(go.Scatter(x=x, y=f["p_farm_q10"], line=dict(width=0), fill="tonexty", fillcolor=theme.BAND,
+                                 name="Диапазон P10–P90", customdata=f[["p_farm_q10", "p_farm_q90"]],
+                                 hovertemplate="P10–P90: <b>%{customdata[0]:.0%}–%{customdata[1]:.0%}</b><extra></extra>"))
+    if prev is not None:
+        p = prev[["target_time_local", col]].merge(f[["target_time_local"]], on="target_time_local", how="right")
+        if p[col].notna().any():
+            fig.add_trace(go.Scatter(x=p["target_time_local"], y=p[col], name="Предыдущий прогноз",
+                                     line=dict(color="#8a9a94", width=1.6, dash="dash", shape="spline", smoothing=0.4),
+                                     hovertemplate="предыдущий: %{y:.0%}<extra></extra>"))
+    fig.add_trace(go.Scatter(x=x, y=f[col], name=f"Прогноз · {label}" if series != "farm" else "Текущий прогноз (P50)",
+                             line=dict(color=theme.FORECAST, width=2.8, shape="spline", smoothing=0.4),
+                             hovertemplate="прогноз (P50): <b>%{y:.0%}</b><extra></extra>"))
+    if fact is not None and fact.notna().any():
+        fig.add_trace(go.Scatter(x=x, y=fact.to_numpy(), name="Факт SCADA", mode="lines+markers",
+                                 line=dict(color=theme.FACT, width=1.8),
+                                 marker=dict(size=5, color=theme.FACT, line=dict(width=1.5, color=theme.SURFACE)),
+                                 hovertemplate="факт: <b>%{y:.0%}</b><extra></extra>"))
+    if wind is not None:
+        fig.add_trace(go.Scatter(x=x, y=f[col], mode="lines", line=dict(width=0), showlegend=False, customdata=wind,
+                                 hovertemplate="ветер ECMWF: %{customdata:.1f} м/с<extra></extra>"))
+    # Пик завтра — одна подпись
+    d1 = f[f["lead_day"] == 1]
+    if len(d1):
+        i = d1[col].idxmax()
+        fig.add_trace(go.Scatter(x=[d1.loc[i, "target_time_local"]], y=[d1.loc[i, col]], mode="markers", showlegend=False,
+                                 hoverinfo="skip", marker=dict(size=10, color=theme.FORECAST, line=dict(width=2.5, color="#fff"))))
+        fig.add_annotation(x=d1.loc[i, "target_time_local"], y=d1.loc[i, col], text=f"<b>пик {d1.loc[i, col]:.0%}</b>",
+                           showarrow=False, yshift=18, bgcolor="rgba(255,255,255,0.9)", font=dict(size=12, color=theme.INK))
+    # Подписи дней под осью и разделители суток
+    days = pd.DatetimeIndex(x).normalize().unique()
+    for k, day in enumerate(days):
+        if k:
+            fig.add_vline(x=day, line_width=1, line_color=theme.AXIS)
+        name = day_names[k] if k < len(day_names) else ""
+        fig.add_annotation(x=day, y=0, yref="paper", yanchor="top", xanchor="left", yshift=-34, showarrow=False,
+                           align="left", text=f"<b>{day.day} {_MONTHS_GEN[day.month]}</b><br>{name}",
+                           font=dict(size=12, color=theme.MUTED))
+    theme.style(fig, height=440, margin=dict(l=12, r=16, t=40, b=70),
+                xaxis=dict(tickformat="%H:%M", dtick=6 * HOUR_MS, hoverformat="%d.%m.%Y %H:%M", showgrid=True,
+                           gridcolor=theme.GRID),
+                yaxis=dict(range=[0, 1.06], tickformat=".0%", dtick=0.25, title="мощность, % номинала"),
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0, font=dict(size=12)))
+    return fig

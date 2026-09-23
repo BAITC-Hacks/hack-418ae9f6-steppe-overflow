@@ -4,14 +4,30 @@
 services:
   app:
     build: .
+    image: steppewind:latest
     restart: unless-stopped
     env_file:
       - path: .env
         required: false
     environment:
       STREAMLIT_CLIENT_SHOW_ERROR_DETAILS: "false"
+    volumes:
+      - runtime:/data/runtime
     expose:
       - "8501"
+
+  # Планировщик агента: каждые 15 минут проверяет новые прогоны погоды и пересчитывает живой прогноз
+  scheduler:
+    image: steppewind:latest
+    depends_on:
+      - app
+    restart: unless-stopped
+    command: ["python", "-m", "windagent", "live", "--watch", "--interval", "900"]
+    env_file:
+      - path: .env
+        required: false
+    volumes:
+      - runtime:/data/runtime
 
   caddy:
     image: caddy:2
@@ -31,5 +47,6 @@ services:
       - caddy_config:/config
 
 volumes:
+  runtime:
   caddy_data:
   caddy_config:

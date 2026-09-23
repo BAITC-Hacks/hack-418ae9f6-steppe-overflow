@@ -15,7 +15,7 @@ from windagent import forecast
 from windagent.config import ROOT, load_settings
 from windagent.eval import metrics
 from windagent.ui import agent_view as av
-from windagent.ui import charts, data, theme
+from windagent.ui import charts, components, data, theme
 
 ASSETS = ROOT / "app" / "assets"
 st.set_page_config(page_title="Steppe Wind — прогноз ВЭС", page_icon=str(ASSETS / "favicon.svg"), layout="wide")
@@ -138,7 +138,7 @@ h1 { padding-top: 0.2rem; }
 
 /* Телефон */
 @media (max-width: 640px) {
-  [data-testid="stMainBlockContainer"] { padding: 1.2rem 1rem 6rem; }
+  [data-testid="stMainBlockContainer"] { padding: 3.6rem 1rem 6rem; }  /* под шапкой Streamlit */
   h1 { font-size: 1.7rem !important; line-height: 1.2 !important; }
   h2, h3 { font-size: 1.2rem !important; }
   .st-key-kpi [data-testid="stHorizontalBlock"] { flex-wrap: wrap !important; gap: .6rem !important; }
@@ -184,7 +184,7 @@ def status_block() -> None:
     st.html(
         f'<div style="background:#fff;border:1px solid #d5e0ea;border-radius:12px;padding:10px 12px;'
         f'font:12.5px Manrope,Roboto,sans-serif;color:#0c2f2b">'
-        f'<div style="font-weight:700;margin-bottom:4px">Статус системы</div>{body}'
+        f'<div style="font-weight:700;margin-bottom:6px;color:#0f6e36">● Система в норме</div>{body}'
         f'<a href="{GITHUB_URL}" target="_blank" style="display:inline-block;margin-top:6px;color:#12803f;'
         f'font-weight:700;text-decoration:none">Код на GitHub ↗</a></div>'
     )
@@ -244,7 +244,7 @@ def _shift_issue(key: str, delta: int) -> None:
     st.session_state["issue_date"] = dates[i]
 
 
-def issue_picker(key: str) -> pd.Timestamp:
+def issue_picker(key: str, label_visibility: str = "visible") -> pd.Timestamp:
     dates = data.test_issue_dates()
     if key not in st.session_state:
         st.session_state[key] = st.session_state.get("issue_date", dates[9])
@@ -253,7 +253,7 @@ def issue_picker(key: str) -> pd.Timestamp:
         st.button("", icon=":material/chevron_left:", key=f"{key}_prev", help="Предыдущий выпуск",
                   on_click=_shift_issue, args=(key, -1), disabled=cur == dates[0])
         d = st.selectbox("Выпуск прогноза (в 14:00 местного времени)", dates, key=key, format_func=fmt_issue,
-                         width="stretch")
+                         width="stretch", label_visibility=label_visibility)
         st.button("", icon=":material/chevron_right:", key=f"{key}_next", help="Следующий выпуск",
                   on_click=_shift_issue, args=(key, 1), disabled=cur == dates[-1])
     st.session_state["issue_date"] = d
@@ -315,66 +315,150 @@ def agent_brief(d: pd.Timestamp, m: dict) -> float | None:
 # --- Страницы -----------------------------------------------------------------------------
 
 
+MODES = ["Февраль 2026 · тест", "Сейчас", "История"]
+
+
+def forecast_controls(mode_default: str = MODES[0]):
+    """Строка управления: слева выбор выпуска, справа режим (как на макете)."""
+    left, right = st.columns([3, 2], vertical_alignment="bottom")
+    with right:
+        mode = st.segmented_control("Режим", MODES, default=mode_default, key="fc_mode", label_visibility="collapsed",
+                                    width="stretch")
+    return left, mode or MODES[0]
+
+
 def page_forecast():
-    st.title("Прогноз выработки ВЭС")
-    st.caption("Почасовой прогноз на 48 часов: завтра и послезавтра. Мощность — в % номинала ВЭС (2 турбины).")
+    mode = st.session_state.get("fc_mode") or MODES[0]
+    if mode == "История":
+        return page_history()
+    if mode == "Сейчас":
+        return page_live()
 
-    mode = st.segmented_control(
-        "Режим", ["Февраль 2026 — тестовый период", "История — прогноз против факта"],
-        default="Февраль 2026 — тестовый период", label_visibility="collapsed",
-    )
-    if mode and mode.startswith("История"):
-        page_history()
-        return
+    dates = data.test_issue_dates()
+    d_now = pd.Timestamp(st.session_state.get("issue_forecast", st.session_state.get("issue_date", dates[9])))
+    m = load_manifest(f"{d_now:%Y-%m-%d}")
+    issue_local = pd.Timestamp(m["as_of_utc"]) + pd.Timedelta(hours=OFFSET)
+    st.html(components.header_html("Прогноз выработки ВЭС", issue_local, m["checks"]["all_sources_published_before_as_of"],
+                                   "Почасовой прогноз на 48 часов: завтра и послезавтра"))
+    left, _ = forecast_controls()
+    with left:
+        d = issue_picker("issue_forecast", label_visibility="collapsed")
 
-    d = issue_picker("issue_forecast")
     sub = load_submission()
     f = sub[sub["issue_date"] == d].reset_index(drop=True)
-    m = load_manifest(f"{d:%Y-%m-%d}")
+    w = load_weather(f"{d:%Y-%m-%d}")
+    st.html(components.kpi_html(f, load_clim_delta(f"{d:%Y-%m-%d}", m["as_of_utc"])))
 
-    agent_brief(d, m)
-    kpi_tiles(f, load_clim_delta(f"{d:%Y-%m-%d}", m["as_of_utc"]))
-    show_t = st.toggle("Показать турбины по отдельности", value=False)
-    plot(charts.forecast_chart(f, show_turbines=show_t))
+    run = load_agent_run(d)
+    if run is not None:
+        b = av.run_brief(run)
+        rev = None
+        if b["revision"]:
+            r = b["revision"]
+            rev = (f"В {r['as_of_local'][-5:]} вышел новый прогон ECMWF — агент выпустил ревизию v{r['version']}"
+                   + (f" (в среднем на {r['mean_abs_change'] * 100:.0f} п.п.)" if r["mean_abs_change"] is not None else "")
+                   + ". В сдачу идёт версия на 14:00.")
+        width = float((f["p_farm_q90"] - f["p_farm_q10"]).mean())
+        st.html(components.ai_card_html(b["explanation"], b["confidence"], b["mode"], components.model_gaps(w),
+                                        width, components.weather_spread(w), rev))
+        st.page_link(PAGE_AGENT, label="Подробнее: шаги и решения агента", icon=":material/arrow_forward:")
 
-    with st.container(horizontal=True, key="toolbar", gap="small"):
-        recalc = st.button("Пересчитать выпуск", icon=":material/refresh:",
-                           help="Заново: прогнозы погоды на момент выпуска → признаки → модель")
-        st.download_button("CSV выпуска", f.to_csv(index=False).encode("utf-8"), icon=":material/download:",
-                           file_name=f"forecast_{d:%Y-%m-%d}.csv", mime="text/csv")
-        st.download_button("CSV всего февраля", sub.to_csv(index=False).encode("utf-8"), icon=":material/download:",
-                           file_name="forecast_feb2026.csv", mime="text/csv", help="28 выпусков × 48 часов")
+    with st.container(border=True, key="chart_card"):
+        series = st.session_state.get("fc_series") or "ВЭС (2 турбины)"
+        key = {"ВЭС (2 турбины)": "farm", "Турбина 1": "t1", "Турбина 2": "t2"}[series]
+        st.markdown("#### Прогноз выработки")
+        plot(charts.main_forecast_chart(f, prev=components.previous_forecast(sub, d),
+                                        wind=components.wind_for_hours(w, f), series=key))
+        with st.container(horizontal=True, vertical_alignment="center", gap="small"):
+            st.pills("Показать", ["ВЭС (2 турбины)", "Турбина 1", "Турбина 2"], default="ВЭС (2 турбины)",
+                     key="fc_series", label_visibility="collapsed")
+            st.space("stretch")
+            recalc = st.button("Пересчитать", icon=":material/refresh:",
+                               help="Заново: прогнозы погоды на момент выпуска → признаки → модель")
+            st.download_button("Скачать данные", f.to_csv(index=False).encode("utf-8"), icon=":material/download:",
+                               file_name=f"forecast_{d:%Y-%m-%d}.csv", mime="text/csv", type="primary")
     if recalc:
         t0 = time.time()
-        live, _ = forecast.forecast_issue(d, load_model())
-        diff = float(np.abs(live["p_farm"].to_numpy() - f["p_farm"].to_numpy()).max())
+        live_f, _ = forecast.forecast_issue(d, load_model())
+        diff = float(np.abs(live_f["p_farm"].to_numpy() - f["p_farm"].to_numpy()).max())
         st.info(f"Пересчитано за {time.time() - t0:.1f} с. Максимальное расхождение с сохранённым прогнозом: "
                 f"{diff * 100:.2f} п.п. ({'совпадает' if diff < 1e-3 else 'отличается'}).")
 
-    with st.expander("Таблица: все 48 часов"):
+    with st.expander("Таблица: все 48 часов и весь февраль"):
         t = f[["target_time_local", "lead_day", "p_farm", "p_farm_q10", "p_farm_q90", "p_t1", "p_t2"]].rename(columns={
             "target_time_local": "час (UTC+6)", "lead_day": "сутки", "p_farm": "ВЭС", "p_farm_q10": "P10",
             "p_farm_q90": "P90", "p_t1": "турбина 1", "p_t2": "турбина 2"})
         st.dataframe(t, hide_index=True, use_container_width=True,
                      column_config={"час (UTC+6)": st.column_config.DatetimeColumn(format="DD.MM HH:mm")})
+        st.download_button("CSV всего февраля (28 выпусков × 48 ч)", sub.to_csv(index=False).encode("utf-8"),
+                           icon=":material/download:", file_name="forecast_feb2026.csv", mime="text/csv")
+
+
+def page_live():
+    from pathlib import Path
+
+    from windagent import live
+
+    ptr = live.latest_pointer()
+    as_of = pd.Timestamp(ptr["as_of_utc"]) + pd.Timedelta(hours=OFFSET) if ptr else None
+    st.html(components.header_html("Прогноз выработки ВЭС", as_of, True if ptr else None,
+                                   "Живой прогноз на настоящее «завтра» по свежим прогнозам погоды"))
+    left, _ = forecast_controls("Сейчас")
+    with left:
+        c1, c2 = st.columns([1, 3], vertical_alignment="center")
+        refresh = c1.button("Обновить сейчас", icon=":material/sync:", help="Скачать свежую погоду и запустить агента")
+        c2.caption("Планировщик на сервере каждые 15 минут проверяет новые прогоны ECMWF и сам запускает агента.")
+    if refresh:
+        with st.spinner("Скачиваю свежие прогнозы погоды и запускаю агента…"):
+            live.run_live(load_model(), mode="rules", log=lambda m: None)
+        st.rerun()
+    if not ptr:
+        st.info("Живой прогноз ещё не построен — нажмите «Обновить сейчас».")
+        return
+    run = av.load_run(Path(ptr["dir"]))
+    if run is None:
+        st.warning("Журнал последнего живого запуска не найден.")
+        return
+    f = run["versions"][-1]["forecast"]
+    st.html(components.kpi_html(f, data.climatology_delta_d1(f, ptr["as_of_utc"])))
+    b = av.run_brief(run)
+    ecmwf = pd.Timestamp(ptr["ecmwf_run"]) if ptr.get("ecmwf_run") else None
+    width = float((f["p_farm_q90"] - f["p_farm_q10"]).mean())
+    st.html(components.ai_card_html(run["versions"][-1]["explanation"], b["confidence"], run["mode"], [], width, None,
+                                    f"Данные: прогон ECMWF {'—' if ecmwf is None else f'{ecmwf:%d.%m %H}Z'}"))
+    runs = live.history(run["issue_date"])
+    prev = None
+    if len(runs) > 1:
+        rr = av.load_run(Path(runs[1]["dir"]))
+        prev = rr["versions"][-1]["forecast"] if rr else None
+    with st.container(border=True):
+        st.markdown("#### Прогноз выработки")
+        plot(charts.main_forecast_chart(f, prev=prev))
+        st.caption("Пунктир — предыдущее обновление живого прогноза (если было сегодня).")
 
 
 def page_history():
+    st.html(components.header_html("Прогноз выработки ВЭС", None, None,
+                                   "История: прогноз модели против фактической выработки"))
+    left, _ = forecast_controls("История")
     bt = load_backtest()
     ens = bt[bt["model"] == "ensemble"]
     periods = list(dict.fromkeys(ens["period"]))
-    c1, c2 = st.columns([1, 2])
-    per = c1.selectbox("Контрольный период", periods, format_func=lambda p: PERIOD_NAMES.get(p, p))
-    dates = sorted(ens.loc[ens["period"] == per, "issue_date"].unique())
-    d = c2.selectbox("Дата выпуска", dates, index=len(dates) // 2, format_func=fmt_day)
+    with left:
+        c1, c2 = st.columns([1, 2])
+        per = c1.selectbox("Контрольный период", periods, format_func=lambda p: PERIOD_NAMES.get(p, p))
+        dates = sorted(ens.loc[ens["period"] == per, "issue_date"].unique())
+        d = c2.selectbox("Дата выпуска", dates, index=len(dates) // 2, format_func=fmt_day)
     g = ens[(ens["period"] == per) & (ens["issue_date"] == d)].sort_values("target_time_utc")
     f = g[["target_time_local", "lead_day"]].copy()
     f["p_farm"] = g["p_farm_pred"].to_numpy()
     mae = metrics.mae(g["p_farm"], g["p_farm_pred"])
-    st.caption("Модель обучена только на данных до начала периода; факт на момент прогноза был неизвестен.")
-    kpi_tiles(f, extra={"label": "Ошибка этого выпуска", "value": f"{mae * 100:.0f} п.п.",
-                        "help": f"Средняя абсолютная ошибка по 48 часам (MAE = {mae:.3f})"})
-    plot(charts.forecast_chart(f, fact=g["p_farm"].reset_index(drop=True)))
+    st.html(components.kpi_html(f, None, extra=("Ошибка этого выпуска", f"{mae * 100:.0f} п.п.",
+                                                 f'<div class="s">MAE = {mae:.3f} по 48 часам</div>')))
+    with st.container(border=True):
+        st.markdown("#### Прогноз против факта")
+        plot(charts.main_forecast_chart(f, fact=g["p_farm"].reset_index(drop=True)))
+        st.caption("Модель обучена только на данных до начала периода; факт на момент прогноза был неизвестен.")
 
 
 def page_weather():
@@ -540,6 +624,11 @@ def render_run(run: dict) -> None:
     last = run["versions"][-1]
     st.subheader("Объяснение для диспетчера")
     st.info(last["explanation"])
+    fc = last.get("fact_check")
+    if fc and run["mode"] == "llm":
+        st.markdown(chip(f"✓ проверка фактов: все {fc['numbers']} чисел в тексте подтверждены инструментами", "#e3f3e8", "#0f6e36")
+                    if fc["passed"] else chip(f"⚠ проверка фактов: без источника — {', '.join(f'{n:g}' for n in fc['unmatched'])}",
+                                              "#fdf3dc", "#8a5a00"), unsafe_allow_html=True)
     if len(run["versions"]) > 1:
         with st.expander(f"Объяснение версии v1 (на момент выпуска, {run['versions'][0]['as_of_local']})"):
             st.write(run["versions"][0]["explanation"])
@@ -571,12 +660,17 @@ def page_agent():
     d = issue_picker("issue_agent")
     key = f"live_run_{d:%Y-%m-%d}"
 
+    from windagent.agent.tools import FAULTS
+
     llm = av.llm_configured()
-    with st.container(horizontal=True, vertical_alignment="center", gap="medium"):
-        mode = st.segmented_control("Режим", ["LLM (OpenAI)", "Правила"], default="LLM (OpenAI)" if llm else "Правила",
-                                    label_visibility="collapsed", disabled=not llm)
-        start = st.button("Запустить агента сейчас", type="primary", icon=":material/play_arrow:")
-        st.caption("Повторяет весь цикл заново на архивных данных этой даты: правила ~3 с, LLM ~30 с.")
+    with st.container(horizontal=True, vertical_alignment="bottom", gap="medium"):
+        mode = st.segmented_control("Режим агента", ["LLM (OpenAI)", "Правила"], default="LLM (OpenAI)" if llm else "Правила",
+                                    disabled=not llm)
+        fault = st.selectbox("Сценарий", [None, *FAULTS], format_func=lambda k: "Обычные данные" if k is None else f"Демо сбоя: {FAULTS[k]}",
+                             help="Испортить входные данные и посмотреть, как агент заметит проблему и что решит",
+                             width=320)
+        start = st.button("Запустить агента", type="primary", icon=":material/play_arrow:")
+    st.caption("Повторяет весь цикл заново на архивных данных этой даты: правила ~3 с, LLM ~30 с.")
 
     scheme = st.empty()
     if start:
@@ -589,6 +683,7 @@ def page_agent():
 
         with st.spinner("Агент работает…"):
             r = run_agent(d, load_model(), mode="llm" if use_llm else "rules", out_dir=av.run_dir(d, live=True),
+                          fault=fault,
                           on_step=lambda steps: scheme.html(av.stepper_html(av.pipeline_stages(steps), running=True)))
         st.session_state[key] = True
         st.toast(f"Готово: {r['versions']} верс. за {r['steps']} шагов ({av.MODE_NAMES.get(r['mode'], r['mode'])})",
@@ -599,6 +694,10 @@ def page_agent():
         st.warning("Для этой даты нет журнала агента — нажмите «Запустить агента сейчас».")
         return
     scheme.html(av.stepper_html(av.pipeline_stages(run["steps"])))
+    if run.get("fault"):
+        decisions = [s["reason"] for s in run["steps"] if s["tool"] == "decision"]
+        st.warning(f"**Демо сбоя: {FAULTS.get(run['fault'], run['fault'])}.** Решения агента: "
+                   + ("; ".join(decisions) if decisions else "проблем не обнаружено"), icon=":material/science:")
     source = "только что выполненный запуск" if st.session_state.get(key) else "сохранённый запуск из репозитория"
     st.caption(f"Режим: {av.MODE_NAMES.get(run['mode'], run['mode'])} · версий: {len(run['versions'])} · "
                f"шагов: {len(run['steps'])} · {source}")
@@ -730,10 +829,10 @@ def page_about():
 PAGE_AGENT = st.Page(page_agent, title="AI-агент", icon=":material/smart_toy:", url_path="agent")
 pages = [
     st.Page(page_forecast, title="Прогноз", icon=":material/show_chart:", default=True),
-    PAGE_AGENT,
     st.Page(page_weather, title="Погода", icon=":material/air:", url_path="weather"),
-    st.Page(page_quality, title="Качество", icon=":material/insights:", url_path="quality"),
-    st.Page(page_upload, title="Свои данные", icon=":material/upload_file:", url_path="upload"),
+    st.Page(page_quality, title="Качество прогноза", icon=":material/insights:", url_path="quality"),
+    st.Page(page_upload, title="Данные", icon=":material/upload_file:", url_path="upload"),
+    PAGE_AGENT,
     st.Page(page_about, title="О системе", icon=":material/info:", url_path="about"),
 ]
 st.logo(str(ASSETS / "logo.svg"), icon_image=str(ASSETS / "symbol.svg"), size="large")

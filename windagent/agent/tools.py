@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 
 from windagent import protocol
+from windagent.agent import factcheck
 from windagent.config import load_settings, resolve
 from windagent.data import scada
 from windagent.data.store import DataStore
@@ -54,6 +55,12 @@ class AgentState:
     excluded: list[str] = field(default_factory=list)
     versions: list[dict] = field(default_factory=list)
     last_analysis: dict | None = None
+    tool_results: list[dict] = field(default_factory=list)   # для проверки фактов в объяснении
+    weather_dir: Path | None = None                           # кэш погоды (живой режим — свой кэш)
+    prev_forecast: pd.DataFrame | None = None                 # с чем сравнивать (живой режим)
+    fault: str | None = None                                  # демо-сценарий сбоя данных (FAULTS)
+    fact_check: bool = False                                  # включается в LLM-режиме
+    fact_check_retries: int = 0
 
     def __post_init__(self):
         self.issue_date = pd.Timestamp(self.issue_date).normalize()
@@ -69,13 +76,42 @@ class AgentState:
         return protocol.target_hours_utc(self.issue_date, self.settings)
 
 
+# Демо-сценарии сбоя данных: показывают, как агент замечает проблему и принимает решение
+FAULTS = {
+    "icon_corrupt": "Испорчен прогноз ICON (завышен и сдвинут)",
+    "gfs_gaps": "Пропуски в прогнозе GFS (половина часов)",
+    "ecmwf_late": "Опоздал свежий прогон ECMWF 00Z",
+}
+STALE_RUN_H = 12  # прогон старше — «устаревший»
+
+
+def _store(state: AgentState) -> DataStore:
+    settings = state.settings
+    if state.fault == "ecmwf_late":  # прогон 00Z «ещё не опубликован» к моменту выпуска
+        import copy
+
+        settings = copy.deepcopy(settings)
+        settings["weather"]["single_runs"]["ecmwf_ifs"]["publish_lag_h"] += 7
+    return DataStore(state.as_of, settings=settings, weather_dir=state.weather_dir)
+
+
+def _apply_fault(state: AgentState, X: pd.DataFrame) -> pd.DataFrame:
+    if state.fault == "icon_corrupt":
+        for c in ("icon__wind_speed_100m", "icon__wind_speed_10m"):
+            X[c] = X[c] * 2.2 + 5
+    elif state.fault == "gfs_gaps":
+        cols = [c for c in X.columns if c.startswith("gfs__") and not c.endswith(("run_time", "day"))]
+        X.loc[X.index[::2], cols] = np.nan
+    return X
+
+
 # --- Инструменты ----------------------------------------------------------------------------
 
 
 def check_available_runs(state: AgentState) -> dict:
     """Какие прогоны погоды уже опубликованы на текущий момент (as_of)."""
     w = state.settings["weather"]
-    store = DataStore(state.as_of, settings=state.settings)
+    store = _store(state)
     out = []
     for model in w["single_runs"]:
         run = store.latest_run(model)
@@ -93,8 +129,8 @@ def check_available_runs(state: AgentState) -> dict:
 
 def fetch_weather(state: AgentState) -> dict:
     """Собирает прогнозы всех погодных моделей на 48 целевых часов (только опубликованные к as_of)."""
-    state.store = DataStore(state.as_of, settings=state.settings)
-    state.X = build.issue_frame(state.issue_date, store=state.store, settings=state.settings)
+    state.store = _store(state)
+    state.X = _apply_fault(state, build.issue_frame(state.issue_date, store=state.store, settings=state.store.settings))
     state.forecast = None
     cov = {}
     for pre in SOURCES:
@@ -135,9 +171,15 @@ def validate_weather(state: AgentState) -> dict:
         if issues:
             suspicious.append(pre)
     spread = float(ws.std(axis=1).mean())
+    age = float(X["ifs__run_age_h"].max()) if "ifs__run_age_h" in X else float("nan")
+    stale = age > STALE_RUN_H
+    if stale:
+        report["ifs"]["issues"].append(f"прогон устарел: {age:.0f} ч (свежий ещё не опубликован)")
     return {
         "sources": report,
         "suspicious_sources": suspicious,
+        "ecmwf_run_age_h": round(age, 1),
+        "ecmwf_stale": stale,
         "ensemble_spread_ms": round(spread, 2),
         "agreement": "хорошее" if spread < 1.5 else "умеренное" if spread < 3 else "слабое",
         "recommendation": (f"исключить из расчёта: {', '.join(suspicious)}" if suspicious
@@ -195,12 +237,18 @@ def analyze_forecast(state: AgentState) -> dict:
     tl = pd.DatetimeIndex(f["target_time_local"])
     clim_vals = clim.reindex(pd.MultiIndex.from_arrays([tl.month, tl.hour])).to_numpy()
     clim_mean = float(np.nanmean(clim_vals))
+    lead1 = (f["lead_day"] == 1).to_numpy()
+    clim_d1 = float(np.nanmean(clim_vals[lead1]))
 
     d1 = f[f["lead_day"] == 1]
     peak = d1.loc[d1["p_farm"].idxmax()]
     width = float((f["p_farm_q90"] - f["p_farm_q10"]).mean())
     spread = float(X[[f"{s}__wind_speed_100m" for s in SOURCES]].std(axis=1).mean())
     confidence = "высокая" if width < 0.35 and spread < 1.5 else "низкая" if width > 0.55 or spread > 3 else "средняя"
+    age = float(X["ifs__run_age_h"].max()) if "ifs__run_age_h" in X else 0.0
+    if age > STALE_RUN_H:
+        flags.append(f"прогноз ECMWF устарел ({age:.0f} ч) — уверенность понижена")
+        confidence = {"высокая": "средняя", "средняя": "низкая"}.get(confidence, confidence)
 
     prev = _previous_forecast(state)
     change = None
@@ -221,6 +269,8 @@ def analyze_forecast(state: AgentState) -> dict:
         "high_hours_d1": int((d1["p_farm"] >= 0.8).sum()),
         "climatology_mean": round(clim_mean, 3),
         "vs_climatology": round(float(p.mean()) - clim_mean, 3),
+        "climatology_mean_d1": round(clim_d1, 3),
+        "vs_climatology_d1": round(float(p[lead1].mean()) - clim_d1, 3),
         "mean_interval_width": round(width, 3),
         "ensemble_spread_ms": round(spread, 2),
         "change_vs_previous_issue": change,
@@ -230,9 +280,18 @@ def analyze_forecast(state: AgentState) -> dict:
     return result
 
 
+MAX_FACT_CHECK_RETRIES = 2
+
+
 def publish_forecast(state: AgentState, explanation: str) -> dict:
     """Публикует текущий прогноз как новую версию: CSV + манифест + объяснение."""
     f = _need(state.forecast, "run_forecast")
+    check = factcheck.check(explanation, state.tool_results)
+    if state.fact_check and not check["passed"] and state.fact_check_retries < MAX_FACT_CHECK_RETRIES:
+        state.fact_check_retries += 1
+        nums = ", ".join(f"{n:g}" for n in check["unmatched"])
+        raise ToolError(f"проверка фактов не пройдена: в объяснении есть числа, которых нет в результатах "
+                        f"инструментов ({nums}). Перепиши объяснение, используя только числа из результатов.")
     version = len(state.versions) + 1
     state.out_dir.mkdir(parents=True, exist_ok=True)
     path = state.out_dir / f"forecast_v{version}.csv"
@@ -243,12 +302,14 @@ def publish_forecast(state: AgentState, explanation: str) -> dict:
         "as_of_local": _local(state.as_of, state.offset),
         "excluded_sources": state.excluded,
         "explanation": explanation,
+        "fact_check": check,
         "file": str(path.relative_to(resolve(".")) if path.is_relative_to(resolve(".")) else path),
         "sources": state.store.manifest if state.store else [],
         "forecast": f,
     }
     state.versions.append(record)
-    return {"version": version, "file": record["file"], "as_of_local": record["as_of_local"]}
+    return {"version": version, "file": record["file"], "as_of_local": record["as_of_local"],
+            "fact_check": {"passed": check["passed"], "numbers_checked": check["numbers"]}}
 
 
 def advance_to_next_update(state: AgentState, max_hours: int = 12) -> dict:
@@ -259,7 +320,7 @@ def advance_to_next_update(state: AgentState, max_hours: int = 12) -> dict:
     model = next(iter(state.settings["weather"]["single_runs"]))
     lag = pd.Timedelta(hours=state.settings["weather"]["single_runs"][model]["publish_lag_h"])
     limit = min(state.as_of + pd.Timedelta(hours=max_hours), state.targets[0])
-    store_future = DataStore(limit, settings=state.settings)
+    store_future = DataStore(limit, settings=state.settings, weather_dir=state.weather_dir)
     newer = [r for r in store_future.available_runs(model) if r + lag > state.as_of]
     if not newer:
         return {"new_run_available": False, "as_of_utc": _ts(state.as_of),
@@ -283,7 +344,12 @@ def compare_with_published(state: AgentState) -> dict:
     mean_abs, max_abs = float(np.abs(d).mean()), float(np.abs(d).max())
     significant = mean_abs > REVISION_MEAN_DIFF or max_abs > REVISION_MAX_DIFF
     i = int(np.abs(d).argmax())
+    lead1 = (f["lead_day"] == 1).to_numpy()
+    was, now = float(last["p_farm"].to_numpy()[lead1].mean()), float(f["p_farm"].to_numpy()[lead1].mean())
     return {
+        "mean_p_farm_d1_published": round(was, 3),
+        "mean_p_farm_d1_new": round(now, 3),
+        "mean_p_farm_d1_shift": round(now - was, 3),
         "has_published": True,
         "compared_with_version": state.versions[-1]["version"],
         "mean_abs_change": round(mean_abs, 3),
@@ -310,6 +376,8 @@ def _need(x, tool: str):
 
 def _previous_forecast(state: AgentState) -> pd.DataFrame | None:
     """Прогноз предыдущего выпуска (для сравнения перекрывающихся часов)."""
+    if state.prev_forecast is not None:
+        return state.prev_forecast
     prev_date = state.issue_date - pd.Timedelta(days=1)
     agent_dir = resolve(AGENT_DIR) / f"{prev_date:%Y-%m-%d}"
     files = sorted(agent_dir.glob("forecast_v*.csv"))
@@ -361,6 +429,9 @@ def save_run(state: AgentState, steps: list[dict], mode: str, summary: str) -> P
         "model_version": state.model.version,
         "created_unix": int(time.time()),
         "summary": summary,
+        "fault": state.fault,
+        "live": state.prev_forecast is not None or state.weather_dir is not None,
+        "as_of_utc": str(state.as_of),
         "steps": steps,
         "versions": [{k: v for k, v in ver.items() if k != "forecast"} for ver in state.versions],
     }

@@ -113,6 +113,27 @@ class DataStore:
         runs = self.available_runs(model)[-n_runs:][::-1]
         return [self._one_run(model, targets, r) for r in runs]
 
+    # --- Соседние точки сетки ECMWF ------------------------------------------------
+
+    def neighbor(self, point: str, targets: pd.DatetimeIndex, max_runs: int = 2) -> pd.DataFrame:
+        """Прогноз ECMWF в соседней точке: самый свежий опубликованный прогон (дозаполнение из предыдущего)."""
+        model = self.settings["neighbors"]["model"]
+        lag = self._lag(model)
+        df = weather.load_neighbor(point, self.weather_dir)
+        out = pd.DataFrame(index=targets)
+        if not len(df):
+            return out
+        runs = pd.DatetimeIndex(df["run_time"].unique()).sort_values()
+        runs = runs[runs + lag <= self.as_of][-max_runs:][::-1]
+        for r in runs:
+            f = df[df["run_time"] == r].set_index("valid_time").drop(columns="run_time").reindex(targets)
+            f["run_time"] = r
+            f.loc[f.drop(columns="run_time").isna().all(axis=1), "run_time"] = pd.NaT
+            out = f if out.empty or not len(out.columns) else out.combine_first(f)
+        out["published_at"] = pd.to_datetime(out.get("run_time")) + lag
+        self._log("neighbor", f"{model}:{point}", targets=targets, frame=out)
+        return out
+
     # --- Previous Runs (previous_dayN) ------------------------------------------
 
     def previous_runs(self, model: str, targets: pd.DatetimeIndex) -> pd.DataFrame:

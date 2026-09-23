@@ -1,4 +1,4 @@
-# Steppe Overflow — Agentic AI прогноз выработки ВЭС
+# SteppeWind — Agentic AI прогноз выработки ВЭС
 
 https://steppewind.energy
 

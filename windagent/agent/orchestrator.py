@@ -22,7 +22,8 @@ MAX_LLM_STEPS = 24
 
 SYSTEM_PROMPT = """Ты — AI-агент прогноза выработки ветроэлектростанции (2 турбины, Алматинская область).
 Твоя задача — выпустить почасовой прогноз мощности на 48 часов (D+1 и D+2) и сопроводить его объяснением
-для диспетчера. Все числа получай только из инструментов, ничего не выдумывай.
+для диспетчера. Все числа получай только из инструментов, ничего не выдумывай и не вычисляй сам:
+публикация проверяет, что каждое число в объяснении есть в результатах инструментов.
 
 Порядок работы:
 1. check_available_runs — какие прогнозы погоды доступны сейчас.
@@ -40,6 +41,7 @@ SYSTEM_PROMPT = """Ты — AI-агент прогноза выработки в
    скажи, что изменилось и почему.
 6. В конце дай короткий итог (2–3 предложения): что опубликовано и с какой уверенностью.
 
+С климатической нормой сравнивай завтрашний день: climatology_mean_d1 и vs_climatology_d1.
 Оформление текстов: мощность — в процентах номинала, округлённо («32 %», а не «0,32»); изменения —
 в процентных пунктах («на 7 п.п.»); время — местное, в формате «13.02 23:00»; скорость ветра — в м/с.
 Не используй обозначения D+1/D+2 и названия полей JSON — пиши «завтра», «послезавтра»; модели
@@ -65,15 +67,20 @@ def template_explanation(state: T.AgentState, validation: dict, analysis: dict, 
         f"Согласие погодных моделей {validation['agreement']} (разброс {validation['ensemble_spread_ms']} м/с), "
         f"уверенность прогноза {a['confidence']}."
     )
-    diff = a["vs_climatology"]
-    if abs(diff) >= 0.1:
-        parts.append(f"Это {'выше' if diff > 0 else 'ниже'} климатической нормы для этого времени на {abs(diff):.0%}.")
+    diff = a.get("vs_climatology_d1", a["vs_climatology"])
+    if abs(diff) >= 0.05:
+        parts.append(f"Это {'выше' if diff > 0 else 'ниже'} климатической нормы для завтра "
+                     f"({a.get('climatology_mean_d1', a['climatology_mean']):.0%}) на {abs(diff) * 100:.0f} п.п.")
     if a["change_vs_previous_issue"]:
         c = a["change_vs_previous_issue"]
         parts.append(f"По сравнению с прошлым выпуском прогноз на пересекающиеся часы сдвинулся в среднем на "
                      f"{c['mean_shift']:+.0%}.")
     if state.excluded:
-        parts.append(f"Исключены источники: {', '.join(T.SOURCE_NAMES[s] for s in state.excluded)}.")
+        parts.append(f"Исключены источники: {', '.join(T.SOURCE_NAMES[s] for s in state.excluded)} — "
+                     "проверка качества данных показала проблемы.")
+    if validation.get("ecmwf_stale"):
+        parts.append(f"Свежий прогон ECMWF ещё не опубликован, использован прогон возрастом "
+                     f"{validation['ecmwf_run_age_h']:.0f} ч — уверенность понижена.")
     if revision:
         parts.insert(0, f"Ревизия после выхода нового прогона ECMWF ({revision['new_as_of_local']}): прогноз "
                         f"изменился в среднем на {revision['mean_abs_change']:.0%}, максимум на "
@@ -97,6 +104,8 @@ class Recorder:
         try:
             result = T.call_tool(self.state, name, args)
             ok = True
+            if name != "publish_forecast":
+                self.state.tool_results.append(result)
         except T.ToolError as e:
             result, ok = {"error": str(e)}, False
         self.steps.append({
@@ -140,7 +149,11 @@ def _cycle(rec: Recorder, first: bool, update: dict | None = None) -> None:
     val = rec.call("validate_weather", reason="проверяем качество и согласие моделей")
     exclude = [s for s in val["suspicious_sources"] if s != "ifs" or val["sources"]["ifs"]["coverage"] < T.SUSPICIOUS_COVERAGE]
     if exclude:
-        rec.note(f"исключаю подозрительные источники: {', '.join(exclude)}")
+        why = "; ".join(f"{T.SOURCE_NAMES[s]}: {', '.join(val['sources'][s]['issues'])}" for s in exclude)
+        rec.note(f"исключаю подозрительные источники — {why}")
+    if val.get("ecmwf_stale"):
+        rec.note(f"свежий прогон ECMWF ещё не опубликован — работаю на прогоне возрастом {val['ecmwf_run_age_h']:.0f} ч, "
+                 "уверенность будет понижена")
     rec.call("run_forecast", {"exclude_sources": exclude}, reason="запуск модели")
     ana = rec.call("analyze_forecast", reason="проверка правдоподобия результата")
     if ana["flags"]:
@@ -184,6 +197,7 @@ def run_llm(state: T.AgentState, recheck: bool = True, client=None, model: str |
 
         client = OpenAI()
     model = model or os.environ.get("OPENAI_MODEL") or "gpt-5.6-terra"
+    state.fact_check = True
     rec = Recorder(state, log, on_step)
     task = (f"Выпусти прогноз для даты выпуска {state.issue_date:%Y-%m-%d} "
             f"(момент прогноза {T._local(state.as_of, state.offset)} местного времени). "
@@ -223,9 +237,17 @@ def llm_available() -> bool:
 
 
 def run_agent(issue_date, model, mode: str = "auto", recheck: bool = True, settings: dict | None = None,
-              log: Callable[[str], None] | None = None, client=None, out_dir=None, on_step=None) -> dict:
-    """Полный запуск агента на одну дату выпуска. mode: auto | rules | llm."""
-    extra = {k: v for k, v in (("settings", settings), ("out_dir", out_dir)) if v is not None}
+              log: Callable[[str], None] | None = None, client=None, out_dir=None, on_step=None,
+              as_of=None, weather_dir=None, prev_forecast=None, fault: str | None = None) -> dict:
+    """Полный запуск агента на одну дату выпуска. mode: auto | rules | llm.
+
+    as_of/weather_dir/prev_forecast — для живого режима; fault — демо-сценарий сбоя данных.
+    """
+    extra = {k: v for k, v in (("settings", settings), ("out_dir", out_dir), ("as_of", as_of),
+                                ("weather_dir", weather_dir), ("prev_forecast", prev_forecast),
+                                ("fault", fault)) if v is not None}
+    if as_of is not None:
+        extra["as_of"] = pd.Timestamp(as_of)
     state = T.AgentState(issue_date=issue_date, model=model, **extra)
     use_llm = mode == "llm" or (mode == "auto" and (client is not None or llm_available()))
     used = "rules"

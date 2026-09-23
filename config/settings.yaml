@@ -85,3 +85,15 @@ deploy:
   # Публичный адрес веб-интерфейса (HTTPS через Caddy + Let's Encrypt)
   domain: "steppewind.energy"
   url: "https://steppewind.energy"
+
+# Соседние точки сетки ECMWF «против ветра» (сильный ветер на площадке — З, СВ, В, ЮЗ):
+# ветер там приходит на станцию с опозданием, а рельеф предгорий меняет его по пути.
+neighbors:
+  model: ecmwf_ifs
+  run_hours: [0]                 # используются прогоны 00Z (они и идут в выпуски в 14:00)
+  variables: [wind_speed_100m, wind_direction_100m]
+  points:
+    w:  {latitude: 43.6442, longitude: 78.2872}
+    e:  {latitude: 43.6442, longitude: 78.7872}
+    ne: {latitude: 43.7942, longitude: 78.7372}
+    sw: {latitude: 43.4942, longitude: 78.3372}

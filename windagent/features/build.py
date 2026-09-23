@@ -59,6 +59,11 @@ def issue_frame(issue_date, store: DataStore | None = None, settings: dict | Non
                 out[f"{pre}__lag_ws100_mean"] = np.nanmean(ws, axis=1)
                 out[f"{pre}__lag_ws100_std"] = np.nanstd(ws, axis=1)
 
+    for point in s.get("neighbors", {}).get("points", {}):
+        f = store.neighbor(point, t)
+        for c in ("wind_speed_100m", "wind_direction_100m"):
+            out[f"nb_{point}__{c}"] = f[c].to_numpy() if c in f else np.nan
+
     for model in w["previous_runs"]:
         pre = prefix[model]
         f = store.previous_runs(model, t)

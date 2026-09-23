@@ -46,6 +46,23 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     out["ifs__ws100_trend"] = out["ifs__ws100_next"] - out["ifs__ws100_prev"]
     out["ifs__ws100_day_mean"] = g[ws].transform("mean")
 
+    # Соседние точки ECMWF «против ветра»: ветер там на час раньше, перепады вдоль долины
+    nb = [c.split("__")[0] for c in out.columns if c.startswith("nb_") and c.endswith("__wind_speed_100m")]
+    for p in nb:
+        col = f"{p}__wind_speed_100m"
+        out[f"{p}__ws100_prev1"] = g[col].shift(1)
+        out[f"{p}__ws100_minus_site"] = _col(out, col) - _col(out, ws)
+    if {"nb_e", "nb_w"} <= set(nb):
+        out["nb__grad_e_w"] = _col(out, "nb_e__wind_speed_100m") - _col(out, "nb_w__wind_speed_100m")
+    if {"nb_ne", "nb_sw"} <= set(nb):
+        out["nb__grad_ne_sw"] = _col(out, "nb_ne__wind_speed_100m") - _col(out, "nb_sw__wind_speed_100m")
+    if nb:
+        stack = np.column_stack([_col(out, f"{p}__wind_speed_100m") for p in nb])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            out["nb__ws100_mean"] = np.nanmean(stack, axis=1)
+            out["nb__ws100_max"] = np.nanmax(stack, axis=1)
+
     # Плотность воздуха: мощность ∝ ρ·v³
     t_k = _col(out, "ifs__temperature_2m") + 273.15
     out["ifs__rho"] = _col(out, "ifs__surface_pressure") * 100 / (R_DRY_AIR * t_k)

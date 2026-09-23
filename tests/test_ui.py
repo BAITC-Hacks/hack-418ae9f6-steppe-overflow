@@ -49,9 +49,10 @@ def test_app_runs_without_exceptions():
 
     at = AppTest.from_file(str(resolve("app/streamlit_app.py")), default_timeout=60).run()
     assert not at.exception, at.exception
-    assert any("Прогноз выработки ВЭС" in t.value for t in at.title)
+    mode = at.segmented_control(key="fc_mode")
+    assert "Февраль 2026 · тест" in mode.options and "История" in mode.options
     # Переключение в режим «История — прогноз против факта»
-    at.segmented_control[0].set_value("История — прогноз против факта").run()
+    mode.set_value("История").run()
     assert not at.exception, at.exception
 
 
@@ -62,3 +63,20 @@ def test_climatology_delta_is_for_tomorrow_only():
     d1 = f[f["lead_day"] == 1]["p_farm"].mean()
     assert delta is not None and -1 < delta < 1
     assert 0 <= d1 - delta <= 1  # норма — это доля номинала
+
+
+@needs_artifacts
+def test_main_components_render():
+    from windagent.ui import components as C
+
+    sub = data.submission()
+    f = _issue()
+    d = f["issue_date"].iloc[0]
+    w = data.weather_for_issue(d)
+    kpi = C.kpi_html(f, -0.07)
+    assert "↓ 7 п.п. к норме" in kpi and "Неопределённость" in kpi
+    card = C.ai_card_html("Завтра 32 % номинала. Штиль не ожидается.", "низкая", "llm", C.model_gaps(w), 0.58, 2.66)
+    assert "Завтра 32 % номинала." in card and "ECMWF ↔" in card and "58 п.п." in card
+    assert C.split_explanation("Первая фраза. Вторая фраза.") == ("Первая фраза.", "Вторая фраза.")
+    fig = charts.main_forecast_chart(f, prev=C.previous_forecast(sub, d + pd.Timedelta(days=1)), wind=C.wind_for_hours(w, f))
+    assert "Текущий прогноз (P50)" in [t.name for t in fig.data]

@@ -15,7 +15,10 @@ RUN pip install -r requirements.txt
 COPY . .
 RUN pip install --no-deps -e . \
     && useradd --create-home --uid 1000 app \
-    && chown -R app:app /app
+    && mkdir -p /data/runtime \
+    && chown -R app:app /app /data/runtime
+# Общий каталог сайта и планировщика: живые прогнозы, живой кэш погоды, счётчики лимитов
+ENV WINDAGENT_RUNTIME_DIR=/data/runtime
 USER app
 
 EXPOSE 8501

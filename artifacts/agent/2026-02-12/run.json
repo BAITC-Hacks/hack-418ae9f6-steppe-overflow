@@ -424,7 +424,12 @@
       "3": 12
      }
     }
-   ]
+   ],
+   "fact_check": {
+    "passed": true,
+    "numbers": 5,
+    "unmatched": []
+   }
   },
   {
    "version": 2,
@@ -510,7 +515,12 @@
       "3": 6
      }
     }
-   ]
+   ],
+   "fact_check": {
+    "passed": true,
+    "numbers": 7,
+    "unmatched": []
+   }
   }
  ]
 }

@@ -63,6 +63,28 @@ def load_single(model: str, directory: Path | None = None) -> pd.DataFrame:
     return df
 
 
+def load_neighbor(point: str, directory: Path | None = None) -> pd.DataFrame:
+    df = _read((directory or cache_dir()) / f"single_ecmwf_ifs_nb_{point}.parquet")
+    if df is None:
+        return pd.DataFrame(columns=["run_time", "valid_time"])
+    return df
+
+
+def download_neighbors(start: date, end: date, *, settings: dict | None = None, directory: Path | None = None,
+                       workers: int = 3, log: Callable[[str], None] = print) -> list[dict]:
+    """Прогоны ECMWF в соседних точках сетки (config: neighbors)."""
+    s = settings or load_settings()
+    nb = s["neighbors"]
+    out = []
+    for name, pt in nb["points"].items():
+        with OpenMeteoClient(pt["latitude"], pt["longitude"]) as client:
+            out.append(download_single_runs(
+                nb["model"], start, end, client=client, settings=s, directory=directory, workers=workers, log=log,
+                variables=nb["variables"], run_hours=nb["run_hours"], stem=f"single_ecmwf_ifs_nb_{name}",
+            ))
+    return out
+
+
 def load_previous(model: str, directory: Path | None = None) -> pd.DataFrame:
     df = _read((directory or cache_dir()) / f"previous_{model}.parquet")
     if df is None:
@@ -84,8 +106,9 @@ def _write(df: pd.DataFrame, path: Path) -> None:
 # --- Загрузка ------------------------------------------------------------------
 
 
-def planned_runs(model: str, start: date, end: date, settings: dict | None = None) -> list[pd.Timestamp]:
-    hours = (settings or load_settings())["weather"]["single_runs"][model]["run_hours"]
+def planned_runs(model: str, start: date, end: date, settings: dict | None = None,
+                 run_hours: list[int] | None = None) -> list[pd.Timestamp]:
+    hours = run_hours or (settings or load_settings())["weather"]["single_runs"][model]["run_hours"]
     days = pd.date_range(start, end, freq="D")
     return [d + pd.Timedelta(hours=h) for d in days for h in hours]
 
@@ -101,19 +124,26 @@ def download_single_runs(
     workers: int = 4,
     save_every: int = 200,
     log: Callable[[str], None] = print,
+    variables: list[str] | None = None,
+    run_hours: list[int] | None = None,
+    stem: str | None = None,
 ) -> dict:
-    """Докачивает в кэш прогоны модели за период (уже скачанные пропускаются)."""
+    """Докачивает в кэш прогоны модели за период (уже скачанные пропускаются).
+
+    stem/variables/run_hours позволяют качать ту же модель в другой точке (соседние точки сетки).
+    """
     s = settings or load_settings()
     d = directory or cache_dir(s)
-    path = d / f"single_{model}.parquet"
-    miss_path = d / f"single_{model}_missing.json"
+    stem = stem or f"single_{model}"
+    path = d / f"{stem}.parquet"
+    miss_path = d / f"{stem}_missing.json"
     cfg = s["weather"]["single_runs"][model]
-    variables = single_variables(model, s)
+    variables = variables or single_variables(model, s)
 
     have = _read_parquet(path)
     done = set(pd.to_datetime(have["run_time"].unique())) if have is not None else set()
     missing = set(pd.to_datetime(json.loads(miss_path.read_text()))) if miss_path.exists() else set()
-    todo = [r for r in planned_runs(model, start, end, s) if r not in done and r not in missing]
+    todo = [r for r in planned_runs(model, start, end, s, run_hours) if r not in done and r not in missing]
     log(f"{model}: в кэше {len(done)} прогонов, нет в архиве {len(missing)}, к загрузке {len(todo)}")
 
     own_client = client is None
