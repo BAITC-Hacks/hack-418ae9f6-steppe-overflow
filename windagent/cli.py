@@ -61,6 +61,7 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
     from windagent.config import load_settings, resolve
     from windagent.eval import backtest
     from windagent.models.baselines import default_baselines
+    from windagent.models.gbm import EnsembleForecaster
 
     s = load_settings()
     periods = list(s["validation"]) if args.period == "all" else args.period.split(",")
@@ -69,19 +70,20 @@ def _cmd_backtest(args: argparse.Namespace) -> int:
     all_preds = []
     for name in periods:
         per = s["validation"][name]
-        preds = backtest.run_backtest(default_baselines(), ds, per["first_issue"], per["last_issue"], s)
+        models = default_baselines() + ([] if args.baselines_only else [EnsembleForecaster()])
+        preds = backtest.run_backtest(models, ds, per["first_issue"], per["last_issue"], s)
         preds.insert(0, "period", name)
         all_preds.append(preds)
         table = backtest.report(preds)
         print(f"\n=== {name}: выпуски {per['first_issue']} … {per['last_issue']} (ВЭС, p_farm) ===")
         print(table.round(4).to_string(index=False))
     preds = pd.concat(all_preds, ignore_index=True)
-    out = resolve("artifacts/backtest/baselines.parquet")
+    out = resolve("artifacts/backtest/backtest.parquet")
     out.parent.mkdir(parents=True, exist_ok=True)
     preds.to_parquet(out, index=False)
-    md = resolve("artifacts/reports/baselines.md")
+    md = resolve("artifacts/reports/backtest.md")
     md.parent.mkdir(parents=True, exist_ok=True)
-    md.write_text(backtest.markdown_summary(preds, "Бейзлайны: результаты бэктеста"), encoding="utf-8")
+    md.write_text(backtest.markdown_summary(preds, "Результаты бэктеста"), encoding="utf-8")
     print(f"\nПрогнозы: {out}\nСводка: {md}")
     return 0
 
@@ -116,6 +118,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     b = sub.add_parser("backtest", help="Бэктест на контрольных периодах (протокол как у теста)")
     b.add_argument("--period", default="all", help="feb2025,dec2025,jan2026 или all")
+    b.add_argument("--baselines-only", action="store_true", help="без основной модели (быстро)")
     b.set_defaults(func=_cmd_backtest)
     return p
 

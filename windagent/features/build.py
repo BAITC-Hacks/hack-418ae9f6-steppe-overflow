@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import warnings
 from typing import Iterable
 
 import numpy as np
@@ -18,6 +19,7 @@ from windagent.data.store import DataStore
 
 META = ["issue_date", "issue_time_utc", "target_time_utc", "target_time_local", "horizon_h", "lead_day"]
 TRUTH = ["p_t1", "p_t2", "p_farm", "p_clean_t1", "p_clean_t2", "p_farm_clean"]
+LAGGED_RUNS = 4
 
 
 def issue_frame(issue_date, store: DataStore | None = None, settings: dict | None = None) -> pd.DataFrame:
@@ -47,6 +49,15 @@ def issue_frame(issue_date, store: DataStore | None = None, settings: dict | Non
             ((store.as_of - pd.to_datetime(f["run_time"])) / pd.Timedelta("1h")).to_numpy()
             if "run_time" in f else np.nan
         )
+        # Лаговый ансамбль: последние прогоны модели (за ~сутки). Разброс между ними —
+        # оценка неопределённости прогноза ветра.
+        lagged = store.single_runs_lagged(model, t, n_runs=LAGGED_RUNS)
+        if lagged:
+            ws = np.column_stack([r["wind_speed_100m"].to_numpy(dtype=float) for r in lagged])
+            with warnings.catch_warnings():  # часы, где ни один прогон не дотягивается, → NaN
+                warnings.simplefilter("ignore", RuntimeWarning)
+                out[f"{pre}__lag_ws100_mean"] = np.nanmean(ws, axis=1)
+                out[f"{pre}__lag_ws100_std"] = np.nanstd(ws, axis=1)
 
     for model in w["previous_runs"]:
         pre = prefix[model]

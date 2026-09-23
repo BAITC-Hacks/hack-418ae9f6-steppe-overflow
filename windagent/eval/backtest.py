@@ -83,7 +83,7 @@ def run_backtest(
         frame = test[build.META + truth_cols].copy()
         frame.insert(0, "model", m.name)
         for t in TARGETS:
-            frame[f"{t}_pred"] = pred[t].to_numpy()
+            frame[f"{t}_pred"] = pred[t].to_numpy() if t in pred else float("nan")
         out.append(frame)
     return pd.concat(out, ignore_index=True)
 
@@ -101,6 +101,7 @@ def report(preds: pd.DataFrame, target: str = "p_farm", reference: str = "clim")
 
 
 MODEL_TITLES = {
+    "ensemble": "**Основная модель: ансамбль (бустинг MAE + бустинг MSE + физическая кривая)**",
     "phys_ifs": "ECMWF IFS → кривая мощности по анемометру турбин",
     "curve_ifs": "ECMWF IFS → кривая, обученная на прогнозах",
     "curve_ifs025": "ECMWF 0.25° (Previous Runs) → обученная кривая",
@@ -111,23 +112,22 @@ MODEL_TITLES = {
 
 
 def markdown_summary(preds: pd.DataFrame, title: str, target: str = "p_farm") -> str:
-    """Таблица MAE по моделям и периодам (колонка period) в Markdown."""
-    cols = {}
-    for per, g in preds.groupby("period", sort=False):
-        t = report(g, target)
-        cols[per] = t[t["lead_day"] == "all"].set_index("model")["MAE"]
-    tab = pd.DataFrame(cols)
-    tab["среднее"] = tab.mean(axis=1)
-    tab = tab.sort_values("среднее")
+    """Таблицы MAE и RMSE по моделям и периодам (колонка period) в Markdown."""
+    reports = {per: report(g, target) for per, g in preds.groupby("period", sort=False)}
     lines = [
         f"# {title}",
         "",
-        "MAE прогноза нормированной мощности ВЭС (0–1). Протокол: выпуск ежедневно в 14:00 (UTC+6), "
+        "Прогноз нормированной мощности ВЭС (0–1). Протокол: выпуск ежедневно в 14:00 (UTC+6), "
         "прогноз на D+1 и D+2; обучение только на данных до первого выпуска периода.",
-        "",
-        "| Модель | " + " | ".join(tab.columns) + " |",
-        "|---|" + "---|" * len(tab.columns),
     ]
-    for m, r in tab.iterrows():
-        lines.append(f"| {MODEL_TITLES.get(m, m)} | " + " | ".join(f"{v:.3f}" for v in r) + " |")
+    for metric in ("MAE", "RMSE"):
+        tab = pd.DataFrame(
+            {per: r[r["lead_day"] == "all"].set_index("model")[metric] for per, r in reports.items()}
+        )
+        tab["среднее"] = tab.mean(axis=1)
+        tab = tab.sort_values("среднее")
+        lines += ["", f"## {metric}", "", "| Модель | " + " | ".join(tab.columns) + " |",
+                  "|---|" + "---|" * len(tab.columns)]
+        for m, r in tab.iterrows():
+            lines.append(f"| {MODEL_TITLES.get(m, m)} | " + " | ".join(f"{v:.3f}" for v in r) + " |")
     return "\n".join(lines) + "\n"
