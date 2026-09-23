@@ -267,6 +267,7 @@ uv run windagent forecast --date 2026-02-10
 uv run windagent submission
 
 # 5. AI-агент на одной дате: шаги, решения, объяснение, ревизия (режим правил без ключа)
+#    перезаписывает журнал LLM-агента в artifacts/agent/2026-02-10/ (вернуть: git checkout artifacts/agent)
 uv run windagent agent --date 2026-02-10
 
 # 6. Бэктест на трёх контрольных периодах (~2 мин) → artifacts/reports/backtest.md
