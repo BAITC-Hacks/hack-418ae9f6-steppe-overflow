@@ -14,4 +14,4 @@ fi
 REV=$(git rev-parse --short HEAD)
 echo "Выкладываю $REV на $HOST:~/$DIR"
 git archive --format=tar HEAD | ssh "$HOST" "mkdir -p $DIR && tar -x -C $DIR && echo $REV > $DIR/REVISION"
-ssh "$HOST" "cd $DIR && docker compose up -d --build --remove-orphans && docker compose ps"
+ssh "$HOST" "cd $DIR && docker compose up -d --build --remove-orphans && docker compose restart caddy && docker compose ps"

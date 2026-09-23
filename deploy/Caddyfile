@@ -2,6 +2,16 @@
 {$DOMAIN} {
 	encode zstd gzip
 
+	# Заголовки безопасности: только HTTPS, без встраивания в чужие сайты, без угадывания типов
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "SAMEORIGIN"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+
 	# PWA: манифест, service worker, офлайн-заставка и иконки отдаёт Caddy (Streamlit так не умеет)
 	@pwa_root path /manifest.webmanifest /sw.js /offline.html
 	handle @pwa_root {
